@@ -183,9 +183,8 @@ export async function transcribeStoryChunkOnServer(opts: {
     const body = await res.json();
     const words = extractStoryWords(body);
     const text = outputText(body);
-    if (!words.length && !text) {
-      return { ok: false, error: "Gemini returned no dialogue for this audio chunk." };
-    }
+    // A silent/music-only chunk is valid. The rest of the movie may still
+    // contain the dialogue needed for story understanding.
     return { ok: true, text, words };
   } catch (error) {
     return {
