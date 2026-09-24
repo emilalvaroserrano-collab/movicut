@@ -4,6 +4,7 @@ import { drawStage } from "./draw-stage.ts";
 
 test("canvas karaoke renderer paints the active word yellow and inactive words ivory", () => {
   const painted: Array<{ text: string; fillStyle: unknown }> = [];
+  const state = { fillStyle: "" };
   const ctx = {
     clearRect() {},
     fillRect() {},
@@ -15,12 +16,17 @@ test("canvas karaoke renderer paints the active word yellow and inactive words i
     drawImage() {},
     strokeText() {},
     fillText(text: string) {
-      painted.push({ text, fillStyle: this.fillStyle });
+      painted.push({ text, fillStyle: state.fillStyle });
     },
     measureText(text: string) {
       return { width: text.length * 20 };
     },
-    fillStyle: "",
+    get fillStyle() {
+      return state.fillStyle;
+    },
+    set fillStyle(value: string | CanvasGradient | CanvasPattern) {
+      state.fillStyle = String(value);
+    },
     strokeStyle: "",
     globalAlpha: 1,
     font: "",
