@@ -16,10 +16,16 @@ export type Cut = {
   end: number;
   category: Category;
   score: number;
+  /** AI + signal estimate of short-form retention potential, 0-100. */
+  viralScore?: number;
+  /** Strength of the first 3-5 seconds, 0-100. */
+  hookScore?: number;
   title: string;
   reason: string;
   quote?: string;
   thumb?: string;
+  /** Timestamp selected specifically for the cover/thumbnail. */
+  thumbnailAt?: number;
 };
 
 export const CATEGORY_ORDER: Category[] = ["epic", "comedy", "dialogue", "moral", "action", "revenge"];
@@ -170,6 +176,26 @@ function titleFor(cat: Category, start: number): string {
   const bank = HOOKS[cat];
   const i = Math.abs(Math.round(start * 10)) % bank.length;
   return bank[i];
+}
+
+const TITLE_STOP = new Set(["THE", "A", "AN", "AND", "OR", "OF", "TO", "IN", "ON", "IS", "IT", "THIS", "THAT", "I"]);
+
+function titleFromQuote(quote: string | null, fallback: string): string {
+  if (!quote) return fallback;
+  const words = quote
+    .replace(/[^\p{L}\p{N}'’!? -]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((word) => word.toUpperCase());
+  if (words.length < 3) return fallback;
+  let hot = words.length - 1;
+  while (hot > 0 && TITLE_STOP.has(words[hot].replace(/[^A-Z0-9]/g, ""))) hot -= 1;
+  words[hot] = `*${words[hot].replace(/\*/g, "")}*`;
+  const split = Math.min(4, Math.ceil(words.length / 2));
+  return [words.slice(0, split).join(" "), words.slice(split).join(" ")].filter(Boolean).join("\n");
 }
 
 function reasonFor(cat: Category, subs: boolean, audio: boolean): string {
@@ -336,10 +362,36 @@ function openingLine(cues: Cue[], start: number): string {
     .slice(0, 140);
 }
 
+function closingLine(cues: Cue[], end: number): string {
+  return cues
+    .filter((c) => c.end > end - 8 && c.start < end)
+    .map((c) => c.text.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(-3)
+    .join(" ")
+    .slice(0, 180);
+}
+
 function openingValue(st: WindowStats, line: string): number {
-  const dead = st.lum < 0.07 || st.contrast < 0.035 ? 0.62 : 0;
-  const speech = line.trim().length > 8 ? 0.26 : 0;
-  return clamp01(st.motion * 0.46 + st.audio * 0.34 + st.contrast * 0.36 + st.motionVar * 0.16 + speech - dead);
+  const dead = st.lum < 0.07 || st.contrast < 0.035 ? 0.72 : 0;
+  const trimmed = line.trim();
+  const speech = trimmed.length > 8 ? 0.22 : 0;
+  const punch = /[!?]/.test(trimmed) ? 0.12 : 0;
+  const direct = /\b(you|your|why|what|how|never|stop|wait|no|don't|cant|can't|won't)\b/i.test(trimmed)
+    ? 0.1
+    : 0;
+  const overload = st.motion > 0.92 && st.contrast < 0.08 ? 0.08 : 0;
+  return clamp01(
+    st.motion * 0.4 +
+      st.audio * 0.24 +
+      st.contrast * 0.42 +
+      st.motionVar * 0.18 +
+      speech +
+      punch +
+      direct -
+      dead -
+      overload,
+  );
 }
 
 function placeHook(samples: Sample[], rough: number, duration: number, cues: Cue[]): { start: number; end: number } {
@@ -422,7 +474,9 @@ export function pickCuts(samples: Sample[], duration: number, cues: Cue[], hasAu
     end: c.end,
     category: c.category,
     score: Math.round(c.score * 1000) / 1000,
-    title: titleFor(c.category, c.start),
+    viralScore: Math.round(clamp01(c.score) * 100),
+    hookScore: Math.round(clamp01(c.score * 1.08) * 100),
+    title: titleFromQuote(c.quote, titleFor(c.category, c.start)),
     reason: reasonFor(c.category, hasSubs, hasAudio),
     quote: c.quote ?? undefined,
   }));
@@ -441,7 +495,9 @@ export type Moment = {
   audio: number;
   lines: string;
   openLine: string;
+  closingLine: string;
   frameAt: number;
+  thumbnailAt: number;
 };
 
 function windowLines(cues: Cue[], start: number, end: number): string {
@@ -477,6 +533,25 @@ function bestFrameAt(samples: Sample[], start: number, end: number, category: Ca
   return best;
 }
 
+function bestThumbnailAt(samples: Sample[], start: number, end: number): Sample | null {
+  const pool = samples.filter((s) => s.t >= start + 0.8 && s.t <= end - 0.8);
+  if (!pool.length) return null;
+  let best = pool[0];
+  let score = -Infinity;
+  for (const s of pool) {
+    const dead = s.lum < 0.08 || s.contrast < 0.04;
+    const exposure = s.lum > 0.16 && s.lum < 0.82 ? 0.35 : 0;
+    const motionReadable = s.diff >= 0.06 && s.diff <= 0.58 ? 0.22 : 0;
+    const blurRisk = s.diff > 0.82 ? 0.55 : 0;
+    const value = (dead ? -2 : 0) + s.contrast * 1.55 + exposure + motionReadable - blurRisk;
+    if (value > score) {
+      score = value;
+      best = s;
+    }
+  }
+  return best;
+}
+
 type Draft = {
   start: number;
   end: number;
@@ -489,12 +564,14 @@ type Draft = {
   quote: string | null;
   lines: string;
   openLine: string;
+  closingLine: string;
   energy: number;
 };
 
 function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
   const open = windowStats(samples, draft.start, draft.start + 5);
   const frame = bestFrameAt(samples, draft.start + 0.4, Math.min(draft.end, draft.start + 5), draft.category);
+  const thumbnail = bestThumbnailAt(samples, draft.start + 0.8, draft.end - 0.8);
   return {
     id: `m${index}`,
     start: draft.start,
@@ -508,7 +585,9 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
     audio: Math.round(open.audio * 100) / 100,
     lines: draft.lines,
     openLine: draft.openLine,
+    closingLine: draft.closingLine,
     frameAt: frame?.t ?? draft.start + 2.5,
+    thumbnailAt: thumbnail?.t ?? frame?.t ?? draft.start + 2.5,
   };
 }
 
@@ -548,6 +627,7 @@ export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]):
       quote: bestQuote(cues, window.start, window.end),
       lines: windowLines(cues, window.start, window.end),
       openLine: spoken,
+      closingLine: closingLine(cues, window.end),
       energy: hook * 0.82 + lead.score * 0.18,
     });
   }
@@ -659,7 +739,10 @@ async function audioEnergy(file: File, duration: number): Promise<Float32Array |
   }
 }
 
-export type MomentShot = Moment & { image: string };
+export type MomentShot = Moment & {
+  openingImage: string;
+  thumbnailImage: string;
+};
 
 export async function analyzeMovie(opts: {
   video: HTMLVideoElement;
@@ -729,10 +812,18 @@ export async function analyzeMovie(opts: {
   for (let i = 0; i < moments.length; i++) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const moment = moments[i];
+
     await seekTo(video, Math.min(duration - 0.08, Math.max(0, moment.frameAt)), signal);
-    const image = grabFrame(video, 320, 180, 0.62);
-    if (image) shots.push({ ...moment, image });
-    onProgress(0.93 + (0.06 * (i + 1)) / Math.max(1, moments.length), "Pulling a frame from each stretch");
+    const openingImage = grabFrame(video, 320, 180, 0.56);
+
+    await seekTo(video, Math.min(duration - 0.08, Math.max(0, moment.thumbnailAt)), signal);
+    const thumbnailImage = grabFrame(video, 360, 203, 0.62);
+
+    if (openingImage && thumbnailImage) shots.push({ ...moment, openingImage, thumbnailImage });
+    onProgress(
+      0.93 + (0.06 * (i + 1)) / Math.max(1, moments.length),
+      "Choosing the strongest opening and cover frames",
+    );
   }
 
   onProgress(1, "Cuts are ready");

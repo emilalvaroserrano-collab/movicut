@@ -3,7 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Hookcut";
+const APP_NAME = "Movicut";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -14,7 +14,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Open a movie from this device and cut five portrait scenes — epic, comedy, dialogue, a lesson, action, revenge — with a hook title and cutout karaoke that writes itself from the dialogue and leaves when the line does.",
+          "AI-assisted mobile-first short-form editor that finds strong 50–59 second moments, writes scene-specific hooks, chooses attention-worthy thumbnails, adds karaoke captions, and exports social-ready clips.",
       },
       { name: "theme-color", content: "#0c0b09" },
     ],

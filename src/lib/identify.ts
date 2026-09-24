@@ -6,6 +6,9 @@ export type JudgedCut = {
   category: Category;
   title: string;
   reason: string;
+  viralScore: number;
+  hookScore: number;
+  thumbnailChoice: "opening" | "peak";
 };
 
 const WEAK_HOOKS = new Set(["THE", "THIS", "A", "AN", "IT", "AND", "OF", "TO", "IN", "ON", "IS", "FOR", "YOU"]);
@@ -53,10 +56,13 @@ export function cutsFromJudgement(fallback: Cut[], shots: MomentShot[], judged: 
       end: shot.end,
       category,
       score: shot.score,
+      viralScore: Math.max(0, Math.min(100, Math.round(row.viralScore ?? shot.score * 100))),
+      hookScore: Math.max(0, Math.min(100, Math.round(row.hookScore ?? shot.score * 100))),
       title: cleanTitle(row.title),
-      reason: row.reason || "The first few seconds grab.",
+      reason: row.reason || "The first few seconds create a clear reason to keep watching.",
       quote: shot.quote ?? undefined,
-      thumb: shot.image,
+      thumb: row.thumbnailChoice === "opening" ? shot.openingImage : shot.thumbnailImage,
+      thumbnailAt: row.thumbnailChoice === "opening" ? shot.frameAt : shot.thumbnailAt,
     });
     if (next.length >= 5) break;
   }
@@ -82,11 +88,14 @@ type Payload = {
     quote: string;
     lines: string;
     openLine: string;
+    closingLine: string;
     motion: number;
     contrast: number;
     lum: number;
     audio: number;
-    image: string;
+    openingImage: string;
+    thumbnailImage: string;
+    thumbnailAt: number;
   }[];
 };
 
@@ -105,11 +114,14 @@ export const judgeMoments = createServerFn({ method: "POST" })
         quote: String(moment.quote ?? "").slice(0, 140),
         lines: String(moment.lines ?? "").slice(0, 240),
         openLine: String(moment.openLine ?? "").slice(0, 160),
+        closingLine: String(moment.closingLine ?? "").slice(0, 180),
         motion: Number(moment.motion) || 0,
         contrast: Number(moment.contrast) || 0,
         lum: Number(moment.lum) || 0,
         audio: Number(moment.audio) || 0,
-        image: String(moment.image ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 180_000),
+        openingImage: String(moment.openingImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 180_000),
+        thumbnailImage: String(moment.thumbnailImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 180_000),
+        thumbnailAt: Number(moment.thumbnailAt) || 0,
       })),
     };
   })

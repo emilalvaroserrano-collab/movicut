@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Download, FolderOpen, Pause, Play, RotateCcw, Subtitles } from "lucide-react";
+import { Download, FolderOpen, Pause, Play, RotateCcw, Sparkles, Subtitles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ClipCard } from "@/components/clip-card";
 import {
   CATEGORY_LABEL,
   CATEGORY_ORDER,
@@ -23,6 +24,7 @@ import { cuesToPhrases, linesToCues, parseSubtitles, phraseAt, wordIndexAt, word
 import { extractCutWav, transcribeWav } from "@/lib/hear-cut";
 import { cutsFromJudgement, judgeMoments } from "@/lib/identify";
 import { hasMovieHandle, loadMovieHandle, loadProject, saveMovieHandle, saveProject } from "@/lib/storage";
+import { finalizeRecordedCut } from "@/lib/export-cut";
 
 const BLURB: Record<Category, string> = {
   epic: "The turn that makes the rest of the film make sense.",
@@ -186,6 +188,7 @@ export function Studio() {
   const [hearingId, setHearingId] = useState<string | null>(null);
   const [silentIds, setSilentIds] = useState<string[]>([]);
   const [hearError, setHearError] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
 
   const phrases = useMemo(() => cuesToPhrases(cues), [cues]);
   const cuesRef = useRef(cues);
@@ -590,7 +593,7 @@ export function Studio() {
       let perm = (await handle.queryPermission?.({ mode: "read" })) ?? "prompt";
       if (perm !== "granted") perm = (await handle.requestPermission?.({ mode: "read" })) ?? "denied";
       if (perm !== "granted") {
-        setError("Allow Hookcut to read that movie again, or open it with the button.");
+        setError("Allow Movicut to read that movie again, or open it with the button.");
         return;
       }
       await openFile(await handle.getFile());
@@ -664,11 +667,14 @@ export function Studio() {
                 quote: shot.quote ?? "",
                 lines: shot.lines,
                 openLine: shot.openLine,
+                closingLine: shot.closingLine,
                 motion: shot.motion,
                 contrast: shot.contrast,
                 lum: shot.lum,
                 audio: shot.audio,
-                image: shot.image,
+                openingImage: shot.openingImage,
+                thumbnailImage: shot.thumbnailImage,
+                thumbnailAt: shot.thumbnailAt,
               })),
             },
           });
@@ -688,7 +694,7 @@ export function Studio() {
         setCues((prev) => prev.filter((cue) => cue.source !== "heard"));
       }
       const signals = signalsFrom(result.usedAudio, cues.length > 0 || !manualLockRef.current);
-      if (readScenes) signals.push("Scene read");
+      if (readScenes) signals.push("AI retention rank", "AI thumbnail pick");
       setSignalList(signals);
       setCanRerank(true);
       if (!cuts.length) setError("No 50–59 second cut fit inside this file.");
@@ -781,9 +787,13 @@ export function Studio() {
         }
       }
     }
-    const mime = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/webm"].find((t) =>
-      MediaRecorder.isTypeSupported(t),
-    );
+    const mime = [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm",
+    ].find((t) => MediaRecorder.isTypeSupported(t));
     if (!mime) {
       setError("This browser can't write a downloadable cut. Playback still works.");
       return;
@@ -903,14 +913,30 @@ export function Studio() {
     });
     await stopped;
     stopMix();
-    const blob = new Blob(chunks, { type: mime });
-    const url = URL.createObjectURL(blob);
+    const recorded = new Blob(chunks, { type: mime });
+    setExportProgress(0);
+    const exported = await finalizeRecordedCut(recorded, (ratio) => setExportProgress(ratio));
+    const url = URL.createObjectURL(exported.blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `hookcut-${cut.category}-${Math.round(cut.start)}s.webm`;
+    a.download = `movicut-${cut.category}-${Math.round(cut.start)}s.${exported.extension}`;
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setExportProgress(null);
     setRecording(false);
+    recordingRef.current = false;
+    if (!exported.converted) {
+      setError("MP4 encoding is not available on this device, so Movicut saved a WebM instead.");
+    }
+  }
+
+  function saveCover() {
+    const cut = activeCutRef.current;
+    if (!cut?.thumb) return;
+    const a = document.createElement("a");
+    a.href = cut.thumb;
+    a.download = `movicut-cover-${cut.category}-${Math.round(cut.start)}s.jpg`;
+    a.click();
   }
 
   function onDrop(e: DragEvent) {
@@ -945,13 +971,17 @@ export function Studio() {
   const stillSrc = demoStill === 0 ? "/still-ticket.jpg" : "/still-booth.jpg";
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-8">
+    <main className="mx-auto min-h-screen w-full max-w-6xl px-3 pb-28 pt-4 sm:px-6 sm:pb-8 sm:pt-7">
       <header className="flex items-end justify-between gap-4">
         <div>
-          <p className="font-poster text-4xl tracking-wide text-fg">HOOKCUT</p>
-          <p className="text-sm text-muted">Portrait cuts from the movie on this device</p>
+          <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-pop/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-pop ring-1 ring-pop/30">
+            <Sparkles className="size-3" aria-hidden="true" />
+            AI Shorts Editor
+          </div>
+          <p className="font-poster text-4xl tracking-wide text-fg">MOVICUT</p>
+          <p className="text-sm text-muted">Find the moments people will actually stop for</p>
         </div>
-        <p className="hidden text-right text-sm text-muted sm:block">50–59 seconds · nothing uploaded</p>
+        <p className="hidden text-right text-sm text-muted sm:block">50–59 sec · AI-ranked · MP4 preferred</p>
       </header>
 
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -972,14 +1002,14 @@ export function Studio() {
                 THE LINE IN THE MIDDLE.
               </h1>
               <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">
-                Open a full movie from this device. Hookcut marks up to five stretches between 50 and 59 seconds — an epic
+                Open a full movie from this device. Movicut marks up to five stretches between 50 and 59 seconds — an epic
                 turn, a joke, a line people repeat, a lesson, action, revenge. Each one plays tall, with a hook across the
                 top and cutout karaoke in the center that disappears when the line is done.
               </p>
               <ol className="mt-5 grid gap-2 text-sm text-fg">
-                <li>1. Open the movie. The picture stays in this browser.</li>
-                <li>2. Find the cuts. Karaoke is written from the dialogue.</li>
-                <li>3. Play or save. Each line leaves when it ends.</li>
+                <li>1. Open the movie. The full source file remains on this device.</li>
+                <li>2. AI ranks strong standalone moments, hooks, and cover frames.</li>
+                <li>3. Review, play, edit, then export a social-ready vertical clip.</li>
               </ol>
               {srtName ? (
                 <p className="mt-4 text-sm text-pop">
@@ -1023,7 +1053,7 @@ export function Studio() {
                 Ranking keeps a cut only when the first 3 to 5 seconds can stop a scroll. Epic, comedy, dialogue, a lesson, action, or revenge is used when the scene is actually that — never to fill a slot.
               </p>
               <p className="mt-3 text-sm text-muted">
-                You need the rights to the film, including a magnet. The picture stays here. About a minute of each cut's audio is sent so the karaoke can be written.
+                The full movie stays on this device. Movicut sends only a small set of candidate frames for AI ranking and about a minute of selected-cut audio for karaoke transcription.
               </p>
             </div>
           ) : (
@@ -1036,7 +1066,7 @@ export function Studio() {
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button onClick={() => void scan()} disabled={status === "scanning" || status === "loading" || !longEnough}>
-                    {status === "scanning" ? "Reading the film" : "Find five cuts"}
+                    {status === "scanning" ? "Reading the film" : "Generate viral clips"}
                   </Button>
                   <Button variant="quiet" onClick={() => void chooseMovie()} disabled={status === "scanning"}>
                     Change movie
@@ -1078,7 +1108,7 @@ export function Studio() {
                   <p className="mt-3 text-sm text-muted">Portrait cuts are 50 to 59 seconds. This file is shorter than that.</p>
                 ) : (
                   <p className="mt-3 text-sm text-muted">
-                    A feature-length film takes a short while. Hookcut seeks through it here.
+                    A feature-length film takes a short while. Movicut seeks through it here.
                     {fileMeta.size > 18 * 1024 * 1024 ? " Sound peaks are skipped on large files." : ""} After the cuts
                     land, karaoke is written from each one's dialogue.
                   </p>
@@ -1100,42 +1130,22 @@ export function Studio() {
 
               {cuts.length > 0 ? (
                 <div className="grid gap-2">
-                  {cuts.map((cut, index) => {
-                    const selected = cut.id === activeId;
-                    return (
-                      <button
-                        key={cut.id}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => {
-                          setActiveId(cut.id);
-                          const video = videoRef.current;
-                          if (video) {
-                            video.pause();
-                            video.currentTime = cut.start;
-                          }
-                        }}
-                        className={`flex w-full gap-3 rounded-2xl bg-surface p-3 text-left ring-1 ${selected ? "ring-pop" : "ring-line"}`}
-                      >
-                        {cut.thumb ? (
-                          <img src={cut.thumb} alt="" className="h-16 w-28 shrink-0 rounded-lg object-cover" />
-                        ) : (
-                          <span className="flex h-16 w-28 shrink-0 items-center justify-center rounded-lg bg-surface-2 font-poster text-2xl text-pop">
-                            {index + 1}
-                          </span>
-                        )}
-                        <span className="min-w-0">
-                          <span className="block text-xs text-pop">{CATEGORY_LABEL[cut.category]}</span>
-                          <span className="mt-1 block font-poster text-xl leading-none tracking-wide text-fg">
-                            {plainTitle(cut.title)}
-                          </span>
-                          <span className="mt-1 block text-sm tabular-nums text-muted">
-                            {formatTimecode(cut.start)} – {formatTimecode(cut.end)} · {formatSeconds(cut.end - cut.start)}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {cuts.map((cut, index) => (
+                    <ClipCard
+                      key={cut.id}
+                      cut={cut}
+                      index={index}
+                      selected={cut.id === activeId}
+                      onSelect={() => {
+                        setActiveId(cut.id);
+                        const video = videoRef.current;
+                        if (video) {
+                          video.pause();
+                          video.currentTime = cut.start;
+                        }
+                      }}
+                    />
+                  ))}
                 </div>
               ) : status !== "scanning" ? (
                 <p className="text-sm text-muted">No cuts yet. Find them after the movie is open.</p>
@@ -1338,15 +1348,47 @@ export function Studio() {
               <RotateCcw className="size-4" aria-hidden="true" />
               Restart cut
             </Button>
+            <Button variant="quiet" onClick={saveCover} disabled={!active?.thumb || recording}>
+              <Download className="size-4" aria-hidden="true" />
+              Cover JPG
+            </Button>
             <Button onClick={() => void recordCut()} disabled={!active || recording || cutLen < 49.5}>
               <Download className="size-4" aria-hidden="true" />
-              {recording ? "Saving" : "Save this cut"}
+              {recording ? "Saving" : "Export MP4"}
             </Button>
           </div>
           {recording ? (
-            <p className="mt-2 text-center text-sm text-muted">Playing the cut once to write the video. Leave this tab open.</p>
+            <p className="mt-2 text-center text-sm text-muted">
+              {exportProgress == null
+                ? "Rendering the cut once in real time. Keep this tab open."
+                : `Encoding social-ready MP4… ${Math.round(exportProgress * 100)}%`}
+            </p>
           ) : null}
         </section>
+      </div>
+
+      <div className="fixed inset-x-3 bottom-3 z-40 flex items-center gap-2 rounded-2xl bg-surface/95 p-2 shadow-2xl ring-1 ring-line backdrop-blur sm:hidden">
+        <Button
+          className="min-w-0 flex-1"
+          variant="quiet"
+          onClick={() => (fileMeta ? void scan() : void chooseMovie())}
+          disabled={status === "scanning" || status === "loading" || (fileMeta ? !longEnough : false)}
+        >
+          <Sparkles className="size-4" aria-hidden="true" />
+          {fileMeta ? (status === "scanning" ? "Finding" : "AI clips") : "Open"}
+        </Button>
+        <Button className="min-w-0 flex-1" variant="quiet" onClick={() => toggleRef.current()} disabled={recording}>
+          {playing ? <Pause className="size-4" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
+          {playing ? "Pause" : "Play"}
+        </Button>
+        <Button
+          className="min-w-0 flex-1"
+          onClick={() => void recordCut()}
+          disabled={!active || recording || cutLen < 49.5}
+        >
+          <Download className="size-4" aria-hidden="true" />
+          {recording ? "Saving" : "MP4"}
+        </Button>
       </div>
 
       {!fileMeta && error ? (

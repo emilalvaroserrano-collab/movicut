@@ -1,8 +1,9 @@
 import type { Cut } from "@/lib/analyze";
 import type { Cue } from "@/lib/subtitles";
 
-const LS_KEY = "hookcut-project-v1";
-const DB_NAME = "hookcut";
+const LS_KEY = "movicut-project-v2";
+const LEGACY_LS_KEY = "hookcut-project-v1";
+const DB_NAME = "movicut";
 const STORE = "handles";
 
 export type ProjectSnapshot = {
@@ -15,7 +16,7 @@ export type ProjectSnapshot = {
 
 export function loadProject(): ProjectSnapshot | null {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(LS_KEY) ?? localStorage.getItem(LEGACY_LS_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as ProjectSnapshot;
     if (!data || typeof data.name !== "string" || !Array.isArray(data.cuts)) return null;
