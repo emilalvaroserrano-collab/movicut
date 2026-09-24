@@ -510,6 +510,8 @@ export type Moment = {
   lines: string;
   openLine: string;
   closingLine: string;
+  storyReason: string;
+  storyContext: string;
   frameAt: number;
   thumbnailAt: number;
 };
@@ -579,6 +581,8 @@ type Draft = {
   lines: string;
   openLine: string;
   closingLine: string;
+  storyReason: string;
+  storyContext: string;
   energy: number;
 };
 
@@ -600,6 +604,8 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
     lines: draft.lines,
     openLine: draft.openLine,
     closingLine: draft.closingLine,
+    storyReason: draft.storyReason,
+    storyContext: draft.storyContext,
     frameAt: frame?.t ?? draft.start + 2.5,
     thumbnailAt: thumbnail?.t ?? frame?.t ?? draft.start + 2.5,
   };
@@ -651,6 +657,8 @@ export function preferredMoments(
       lines: windowLines(cues, start, end),
       openLine: spoken,
       closingLine: closingLine(cues, end),
+      storyReason: preferred.reason?.trim().slice(0, 240) ?? "",
+      storyContext: preferred.context?.trim().slice(0, 300) ?? "",
       // Story planner already did the narrative ranking; local signals only
       // refine the visual/opening quality instead of overriding that choice.
       energy: Math.min(1, 0.62 + hook * 0.28 + inferred.score * 0.1),
@@ -702,6 +710,8 @@ export function spreadMoments(
       lines: windowLines(cues, window.start, window.end),
       openLine: spoken,
       closingLine: closingLine(cues, window.end),
+      storyReason: "",
+      storyContext: "",
       energy: hook * 0.82 + lead.score * 0.18,
     });
   }
