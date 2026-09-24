@@ -54,12 +54,12 @@ function clampScore(value: unknown, fallback = 0): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function parseCuts(text: string, allowed: Set<string>): JudgeOut[] {
+function parseCuts(text: string, allowed: Set<string>): JudgeOut[] | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text.trim());
   } catch {
-    return [];
+    return null;
   }
   const rows = (parsed as { cuts?: unknown }).cuts;
   if (!Array.isArray(rows)) return [];
@@ -342,7 +342,10 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
     return { ok: false, error: "Grok 4.7 returned an incomplete scene selection." };
   }
 
-  const cuts = parseCuts(text, new Set(clipped.map((m) => m.id)));
   if (!text) return { ok: false, error: "Grok 4.7 returned no scene-selection output." };
+  const cuts = parseCuts(text, new Set(clipped.map((m) => m.id)));
+  if (cuts === null) {
+    return { ok: false, error: "Grok 4.7 returned invalid structured scene-selection JSON." };
+  }
   return { ok: true, cuts };
 }
