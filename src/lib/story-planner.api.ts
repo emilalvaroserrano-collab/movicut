@@ -13,7 +13,7 @@ export const planStoryWindows = createServerFn({ method: "POST" })
     const duration = Number(input.duration) || 0;
     if (duration < 50) throw new Error("The movie is too short for story planning.");
     return {
-      transcript: input.transcript.slice(0, 120_000),
+      transcript: input.transcript.slice(0, 240_000),
       duration,
       avoid: Array.isArray(input.avoid)
         ? input.avoid.slice(0, 100).map((cut) => ({
