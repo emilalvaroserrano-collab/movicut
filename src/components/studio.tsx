@@ -730,9 +730,12 @@ export function Studio() {
       let enrichedShots = result.shots;
 
       if (result.shots.length >= 2 && !ac.signal.aborted) {
-        const needsDialogue = result.shots.some(
-          (shot) => !shot.openLine.trim() && !shot.lines.trim() && !shot.closingLine.trim(),
-        );
+        const hasGeminiStory = story.words.length > 0 || story.context.trim().length > 0;
+        const needsDialogue =
+          !hasGeminiStory &&
+          result.shots.some(
+            (shot) => !shot.openLine.trim() && !shot.lines.trim() && !shot.closingLine.trim(),
+          );
         if (needsDialogue) {
           setProgress(0.965);
           setProgressLabel("Listening to candidate dialogue before AI selection");
