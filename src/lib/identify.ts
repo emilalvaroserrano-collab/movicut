@@ -91,6 +91,7 @@ export function cutsFromJudgement(shots: MomentShot[], judged: JudgedCut[]): Cut
 }
 
 type Payload = {
+  storyContext?: string;
   moments: {
     id: string;
     start: number;
@@ -118,6 +119,7 @@ export const judgeMoments = createServerFn({ method: "POST" })
       throw new Error("Not enough scenes to read.");
     }
     return {
+      storyContext: String(input.storyContext ?? "").slice(0, 60_000),
       moments: input.moments.map((moment) => ({
         id: String(moment.id).slice(0, 12),
         start: Number(moment.start) || 0,
@@ -141,5 +143,5 @@ export const judgeMoments = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const { judgeMomentsOnServer } = await import("@/lib/identify.server");
-    return judgeMomentsOnServer(data.moments);
+    return judgeMomentsOnServer(data.moments, data.storyContext);
   });
