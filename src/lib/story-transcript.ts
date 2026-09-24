@@ -180,10 +180,14 @@ export async function transcribeMovieStory(opts: {
           }))
         : approximateWords(result.text, range.start, range.end);
 
+      const chunkText =
+        result.text.trim() ||
+        shifted.map((word) => word.text).join(" ").replace(/\s+/g, " ").trim();
+
       chunks.push({
         start: range.start,
         end: range.end,
-        text: result.text.trim(),
+        text: chunkText,
         words: shifted,
       });
       done += 1;
@@ -205,7 +209,7 @@ export async function transcribeMovieStory(opts: {
     )
     .filter((line) => line.length > 4)
     .join("\n")
-    .slice(0, 120_000);
+    .slice(0, 240_000);
 
   return { chunks, words, cues, context };
 }
