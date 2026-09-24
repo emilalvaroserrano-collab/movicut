@@ -654,7 +654,7 @@ export function Studio() {
       let readScenes = false;
       if (result.shots.length >= 2 && !ac.signal.aborted) {
         setProgress(0.98);
-        setProgressLabel("Reading the openings");
+        setProgressLabel("Grok 4.7 is choosing the strongest scenes");
         try {
           const judged = await judgeMoments({
             data: {
@@ -674,12 +674,13 @@ export function Studio() {
                 audio: shot.audio,
                 openingImage: shot.openingImage,
                 thumbnailImage: shot.thumbnailImage,
+                endingImage: shot.endingImage,
                 thumbnailAt: shot.thumbnailAt,
               })),
             },
           });
-          if (judged.ok && judged.cuts.length) {
-            cuts = cutsFromJudgement(result.cuts, result.shots, judged.cuts);
+          if (judged.ok) {
+            cuts = cutsFromJudgement(result.shots, judged.cuts);
             readScenes = true;
           }
         } catch {
@@ -694,10 +695,16 @@ export function Studio() {
         setCues((prev) => prev.filter((cue) => cue.source !== "heard"));
       }
       const signals = signalsFrom(result.usedAudio, cues.length > 0 || !manualLockRef.current);
-      if (readScenes) signals.push("AI retention rank", "AI thumbnail pick");
+      if (readScenes) signals.push("Grok 4.7 final selection", "AI thumbnail pick", "Payoff check");
       setSignalList(signals);
       setCanRerank(true);
-      if (!cuts.length) setError("No 50–59 second cut fit inside this file.");
+      if (!cuts.length) {
+        setError(
+          readScenes
+            ? "Grok 4.7 did not find a strong standalone 50–59 second clip in this candidate pool."
+            : "No 50–59 second cut fit inside this file.",
+        );
+      }
       if (cuts[0]) {
         video.currentTime = cuts[0].start;
       }
