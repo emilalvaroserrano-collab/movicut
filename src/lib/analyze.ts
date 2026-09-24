@@ -488,6 +488,14 @@ export function pickCuts(samples: Sample[], duration: number, cues: Cue[], hasAu
   }));
 }
 
+export type PreferredWindow = {
+  start: number;
+  end: number;
+  category?: Category;
+  reason?: string;
+  context?: string;
+};
+
 export type Moment = {
   id: string;
   start: number;
@@ -595,6 +603,61 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
     frameAt: frame?.t ?? draft.start + 2.5,
     thumbnailAt: thumbnail?.t ?? frame?.t ?? draft.start + 2.5,
   };
+}
+
+export function preferredMoments(
+  samples: Sample[],
+  duration: number,
+  cues: Cue[],
+  windows: PreferredWindow[],
+  avoid: Array<{ start: number; end: number }> = [],
+): Moment[] {
+  if (duration < 50 || samples.length < 2 || !windows.length) return [];
+  const drafts: Draft[] = [];
+
+  for (const preferred of windows.slice(0, 10)) {
+    let start = Math.max(0, Math.min(duration - 50, Number(preferred.start) || 0));
+    let end = Math.min(duration, Number(preferred.end) || start + 54);
+    if (end - start < 50 || end - start > 59) end = Math.min(duration, start + 54);
+    if (end - start < 49.5) continue;
+    if (avoid.some((cut) => start < cut.end + 8 && cut.start < end + 8)) continue;
+    if (drafts.some((cut) => start < cut.end + 8 && cut.start < end + 8)) continue;
+
+    const whole = windowStats(samples, start, end);
+    const open = windowStats(samples, start, Math.min(end, start + 5));
+    const text = cues
+      .filter((cue) => cue.end > start && cue.start < end)
+      .map((cue) => cue.text)
+      .join(" ")
+      .toLowerCase();
+    const scores = scoreCategories(whole, text, cues.length > 0);
+    const inferred = topCategory(scores);
+    const category = preferred.category && CATEGORY_ORDER.includes(preferred.category)
+      ? preferred.category
+      : inferred.category;
+    const spoken = openingLine(cues, start);
+    const hook = openingValue(open, spoken);
+
+    drafts.push({
+      start: Math.round(start * 100) / 100,
+      end: Math.round(end * 100) / 100,
+      scores,
+      category,
+      motion: open.motion,
+      contrast: open.contrast,
+      lum: open.lum,
+      audio: open.audio,
+      quote: bestQuote(cues, start, end),
+      lines: windowLines(cues, start, end),
+      openLine: spoken,
+      closingLine: closingLine(cues, end),
+      // Story planner already did the narrative ranking; local signals only
+      // refine the visual/opening quality instead of overriding that choice.
+      energy: Math.min(1, 0.62 + hook * 0.28 + inferred.score * 0.1),
+    });
+  }
+
+  return drafts.map((draft, index) => toMoment(draft, samples, index));
 }
 
 export function spreadMoments(
@@ -800,8 +863,18 @@ export async function analyzeMovie(opts: {
   signal: AbortSignal;
   onProgress: (ratio: number, label: string) => void;
   avoidCuts?: Array<{ start: number; end: number }>;
+  preferredWindows?: PreferredWindow[];
 }): Promise<{ cuts: Cut[]; shots: MomentShot[]; samples: Sample[]; usedAudio: boolean }> {
-  const { video, file, duration, cues, signal, onProgress, avoidCuts = [] } = opts;
+  const {
+    video,
+    file,
+    duration,
+    cues,
+    signal,
+    onProgress,
+    avoidCuts = [],
+    preferredWindows = [],
+  } = opts;
   const canvas = document.createElement("canvas");
   canvas.width = 48;
   canvas.height = 27;
@@ -850,7 +923,10 @@ export async function analyzeMovie(opts: {
   // Browser heuristics only discover candidates. They no longer manufacture
   // publishable cuts/titles when the AI selector is unavailable.
   const cuts: Cut[] = [];
-  const moments = spreadMoments(norm, duration, cues, avoidCuts);
+  const storyMoments = preferredMoments(norm, duration, cues, preferredWindows, avoidCuts);
+  const moments = storyMoments.length >= 2
+    ? storyMoments
+    : spreadMoments(norm, duration, cues, avoidCuts);
 
   const shots: MomentShot[] = [];
   for (let i = 0; i < moments.length; i++) {
@@ -872,7 +948,9 @@ export async function analyzeMovie(opts: {
     }
     onProgress(
       0.93 + (0.025 * (i + 1)) / Math.max(1, moments.length),
-      "Building a diverse scene pool for Grok 4.7",
+      storyMoments.length >= 2
+        ? "Capturing Gemini story-aware scenes"
+        : "Building a diverse scene pool for Grok 4.7",
     );
   }
 
