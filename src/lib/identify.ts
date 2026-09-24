@@ -34,7 +34,7 @@ export function cleanTitle(raw: string): string {
     .filter(Boolean)
     .slice(0, 2)
     .map((line) => line.toUpperCase().replace(/\s+/g, " ").slice(0, 52));
-  if (!lines.length) return "THIS SCENE\n*HITS*";
+  if (!lines.length) return "";
   const marked = lines.map((line) => {
     const hooks = [...line.matchAll(/\*([^*]+)\*/g)].map((match) => match[1].replace(/[^A-Z0-9]/g, ""));
     if (!hooks.length || hooks.every((word) => WEAK_HOOKS.has(word))) return hookWord(line);
@@ -53,6 +53,8 @@ export function cutsFromJudgement(shots: MomentShot[], judged: JudgedCut[]): Cut
     const shot = byId.get(row.id);
     if (!shot || overlaps(shot.start, shot.end)) continue;
     const category = row.category || shot.category;
+    const title = cleanTitle(row.title);
+    if (!title) continue;
     next.push({
       id: `${category}-${Math.round(shot.start)}-${next.length}`,
       start: shot.start,
@@ -63,7 +65,7 @@ export function cutsFromJudgement(shots: MomentShot[], judged: JudgedCut[]): Cut
       hookScore: Math.max(0, Math.min(100, Math.round(row.hookScore ?? shot.score * 100))),
       standaloneScore: Math.max(0, Math.min(100, Math.round(row.standaloneScore))),
       payoffScore: Math.max(0, Math.min(100, Math.round(row.payoffScore))),
-      title: cleanTitle(row.title),
+      title,
       reason:
         row.reason ||
         `Hook ${row.hookScore} · standalone ${row.standaloneScore} · payoff ${row.payoffScore}.`,

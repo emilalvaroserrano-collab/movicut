@@ -482,7 +482,7 @@ export function pickCuts(samples: Sample[], duration: number, cues: Cue[], hasAu
     score: Math.round(c.score * 1000) / 1000,
     viralScore: Math.round(clamp01(c.score) * 100),
     hookScore: Math.round(clamp01(c.score * 1.08) * 100),
-    title: titleFromQuote(c.quote, titleFor(c.category, c.start)),
+    title: titleFromQuote(c.quote, ""),
     reason: reasonFor(c.category, hasSubs, hasAudio),
     quote: c.quote ?? undefined,
   }));
@@ -597,7 +597,12 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
   };
 }
 
-export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]): Moment[] {
+export function spreadMoments(
+  samples: Sample[],
+  duration: number,
+  cues: Cue[],
+  avoid: Array<{ start: number; end: number }> = [],
+): Moment[] {
   if (duration < 50 || samples.length < 2) return [];
   const lead = duration > 20 * 60 ? Math.min(150, duration * 0.02) : 0;
   const tail = duration > 20 * 60 ? Math.min(180, duration * 0.035) : 0;
@@ -646,8 +651,12 @@ export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]):
   const pickedDrafts: Draft[] = [];
   const MAX_AI_CANDIDATES = 10;
 
+  const isAvoided = (draft: Draft, gap: number) =>
+    avoid.some((window) => overlaps(window, draft, gap));
+
   const canAdd = (draft: Draft, gap: number) =>
-    !pickedDrafts.some((picked) => overlaps(picked, draft, gap));
+    !pickedDrafts.some((picked) => overlaps(picked, draft, gap)) &&
+    !isAvoided(draft, 10);
 
   const addDraft = (draft: Draft, gap = 8) => {
     if (pickedDrafts.length >= MAX_AI_CANDIDATES || !canAdd(draft, gap)) return false;
@@ -790,8 +799,9 @@ export async function analyzeMovie(opts: {
   cues: Cue[];
   signal: AbortSignal;
   onProgress: (ratio: number, label: string) => void;
+  avoidCuts?: Array<{ start: number; end: number }>;
 }): Promise<{ cuts: Cut[]; shots: MomentShot[]; samples: Sample[]; usedAudio: boolean }> {
-  const { video, file, duration, cues, signal, onProgress } = opts;
+  const { video, file, duration, cues, signal, onProgress, avoidCuts = [] } = opts;
   const canvas = document.createElement("canvas");
   canvas.width = 48;
   canvas.height = 27;
@@ -837,15 +847,10 @@ export async function analyzeMovie(opts: {
 
   onProgress(0.93, "Building candidate scenes");
   const norm = normalizeSamples(samples);
-  const cuts = pickCuts(norm, duration, cues, !!energy);
-  const moments = spreadMoments(norm, duration, cues);
-
-  for (let i = 0; i < cuts.length; i++) {
-    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    await seekTo(video, Math.min(duration - 0.08, cuts[i].start + 1.25), signal);
-    const thumb = grabThumb(video);
-    if (thumb) cuts[i].thumb = thumb;
-  }
+  // Browser heuristics only discover candidates. They no longer manufacture
+  // publishable cuts/titles when the AI selector is unavailable.
+  const cuts: Cut[] = [];
+  const moments = spreadMoments(norm, duration, cues, avoidCuts);
 
   const shots: MomentShot[] = [];
   for (let i = 0; i < moments.length; i++) {

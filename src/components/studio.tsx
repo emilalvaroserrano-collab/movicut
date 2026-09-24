@@ -7,9 +7,7 @@ import {
   CATEGORY_ORDER,
   analyzeMovie,
   parseTitle,
-  pickCuts,
   plainTitle,
-  refreshThumbs,
   seekTo,
   type Category,
   type Cut,
@@ -23,7 +21,14 @@ import { formatBytes, formatSeconds, formatTimecode } from "@/lib/format";
 import { cuesToPhrases, linesToCues, parseSubtitles, phraseAt, wordIndexAt, wordsToCues, type Cue, type Phrase } from "@/lib/subtitles";
 import { extractCutWav, transcribeWav } from "@/lib/hear-cut";
 import { cutsFromJudgement, judgeMoments } from "@/lib/identify";
-import { hasMovieHandle, loadMovieHandle, loadProject, saveMovieHandle, saveProject } from "@/lib/storage";
+import {
+  CURRENT_SELECTION_VERSION,
+  hasMovieHandle,
+  loadMovieHandle,
+  loadProject,
+  saveMovieHandle,
+  saveProject,
+} from "@/lib/storage";
 import { finalizeRecordedCut } from "@/lib/export-cut";
 import { hearCandidatePool, type CandidateDialogue } from "@/lib/candidate-dialogue";
 
@@ -151,6 +156,7 @@ export function Studio() {
   const fileRef = useRef<File | null>(null);
   const samplesRef = useRef<Sample[] | null>(null);
   const usedAudioRef = useRef(false);
+  const seenWindowsRef = useRef<Array<{ start: number; end: number }>>([]);
   const demoModeRef = useRef(true);
   const demoPlayingRef = useRef(true);
   const playingRef = useRef(false);
@@ -492,6 +498,7 @@ export function Studio() {
     };
     const previous = fileRef.current;
     const switching = previous != null && (previous.name !== file.name || previous.size !== file.size);
+    if (!previous || switching) seenWindowsRef.current = [];
     fileRef.current = file;
     demoModeRef.current = false;
     demoPlayingRef.current = false;
@@ -508,23 +515,34 @@ export function Studio() {
 
     const saved = loadProject();
     if (saved && saved.name === file.name && saved.size === file.size) {
-      setCuts(saved.cuts);
-      setActiveId(saved.cuts[0]?.id ?? null);
-      if (saved.cues?.length) {
-        setCues(saved.cues);
+      const currentSelection = saved.selectionVersion === CURRENT_SELECTION_VERSION;
+      const restoredCuts = currentSelection ? saved.cuts : [];
+      const restoredCues = currentSelection
+        ? saved.cues
+        : (saved.cues ?? []).filter((cue) => cue.source !== "heard");
+
+      setCuts(restoredCuts);
+      setActiveId(restoredCuts[0]?.id ?? null);
+      seenWindowsRef.current = restoredCuts.map((cut) => ({ start: cut.start, end: cut.end }));
+
+      if (restoredCues.length) {
+        setCues(restoredCues);
         setSrtName(saved.srtName ?? null);
         setSignalList(signalsFrom(false, true));
-        const uploaded = isUploadedSubs(saved.srtName) || saved.cues.some((cue) => cue.source === "file");
-        const onlyHeard = saved.cues.every((cue) => cue.source === "heard");
+        const uploaded =
+          isUploadedSubs(saved.srtName) || restoredCues.some((cue) => cue.source === "file");
+        const onlyHeard = restoredCues.every((cue) => cue.source === "heard");
         if (uploaded || !onlyHeard) manualLockRef.current = true;
-        if (onlyHeard) {
-          for (const cue of saved.cues) {
-            const cut = cue.cutId ? saved.cuts.find((item) => item.id === cue.cutId) : undefined;
+        if (currentSelection && onlyHeard) {
+          for (const cue of restoredCues) {
+            const cut = cue.cutId ? restoredCuts.find((item) => item.id === cue.cutId) : undefined;
             if (cut) heardWindowRef.current.set(cut.id, windowKey(cut));
           }
         }
-      } else if (switching) {
-        setSignalList(["Picture energy"]);
+      } else {
+        setCues([]);
+        if (!currentSelection) setSrtName(null);
+        if (switching || !currentSelection) setSignalList(["Picture energy"]);
       }
     } else {
       setCuts([]);
@@ -633,6 +651,7 @@ export function Studio() {
       setError("This file is shorter than 50 seconds, so it can't hold a portrait cut.");
       return;
     }
+    const previousCuts = [...seenWindowsRef.current];
     const ac = new AbortController();
     abortRef.current = ac;
     setStatus("scanning");
@@ -648,6 +667,7 @@ export function Studio() {
         file,
         duration: fileMeta.duration,
         cues: cuesRef.current,
+        avoidCuts: previousCuts,
         signal: ac.signal,
         onProgress: (ratio, label) => {
           setProgress(ratio);
@@ -656,8 +676,9 @@ export function Studio() {
       });
       samplesRef.current = result.samples;
       usedAudioRef.current = result.usedAudio;
-      let cuts = result.cuts;
+      let cuts: Cut[] = [];
       let readScenes = false;
+      let aiError: string | null = null;
       let candidateDialogue = new Map<string, CandidateDialogue>();
       let enrichedShots = result.shots;
 
@@ -726,14 +747,26 @@ export function Studio() {
           if (judged.ok) {
             cuts = cutsFromJudgement(enrichedShots, judged.cuts);
             readScenes = true;
+          } else {
+            aiError = judged.error;
           }
-        } catch {
-          /* Keep the browser fallback only when the AI request itself fails. */
+        } catch (err) {
+          aiError = err instanceof Error ? err.message : "AI scene selection failed.";
         }
       }
 
       setCuts(cuts);
       setActiveId(cuts[0]?.id ?? null);
+      if (cuts.length) {
+        const seen = [...seenWindowsRef.current];
+        for (const cut of cuts) {
+          const duplicate = seen.some(
+            (window) => Math.abs(window.start - cut.start) < 2 && Math.abs(window.end - cut.end) < 2,
+          );
+          if (!duplicate) seen.push({ start: cut.start, end: cut.end });
+        }
+        seenWindowsRef.current = seen.slice(-100);
+      }
 
       if (!manualLockRef.current) {
         const heardWindows = new Map<string, string>();
@@ -757,7 +790,7 @@ export function Studio() {
       }
 
       setProgress(1);
-      setProgressLabel(readScenes ? "Grok 4.7 selection complete" : "Cuts are ready");
+      setProgressLabel(readScenes ? "Specific AI cuts and titles are ready" : "AI selection stopped");
       const signals = signalsFrom(result.usedAudio, cuesRef.current.length > 0 || candidateDialogue.size > 0);
       if (candidateDialogue.size) signals.push("Candidate dialogue");
       if (readScenes) signals.push("Grok 4.7 final selection", "AI thumbnail pick", "Payoff check");
@@ -765,9 +798,10 @@ export function Studio() {
       setCanRerank(true);
       if (!cuts.length) {
         setError(
-          readScenes
-            ? "Grok 4.7 did not find a strong standalone 50–59 second clip in this candidate pool."
-            : "No 50–59 second cut fit inside this file.",
+          aiError ||
+            (readScenes
+              ? "The AI did not find a strong scene with a concrete, publishable title in this candidate pool."
+              : "Movicut could not produce verified AI cuts. Generate again to try another candidate pool."),
         );
       }
       if (cuts[0]) {
@@ -786,15 +820,10 @@ export function Studio() {
   }
 
   async function rerank() {
-    const video = videoRef.current;
-    if (!samplesRef.current || !fileMeta || !video) return;
-    setError(null);
-    const next = pickCuts(samplesRef.current, fileMeta.duration, cues, usedAudioRef.current);
-    const withThumbs = await refreshThumbs(video, next);
-    setCuts(withThumbs);
-    setActiveId(withThumbs[0]?.id ?? null);
-    setSignalList(signalsFrom(usedAudioRef.current, cues.length > 0));
-    if (!next.length) setError("Those lines didn't leave a 50–59 second cut.");
+    // Re-run the full multimodal AI pipeline. The current cuts are passed to
+    // analyzeMovie as avoid-windows, so this intentionally searches for
+    // different scenes instead of reviving heuristic/generic results.
+    await scan();
   }
 
   function patchCut(id: string, partial: Partial<Cut>) {
@@ -1138,7 +1167,11 @@ export function Studio() {
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button onClick={() => void scan()} disabled={status === "scanning" || status === "loading" || !longEnough}>
-                    {status === "scanning" ? "Reading the film" : "Generate viral clips"}
+                    {status === "scanning"
+                      ? "Reading the film"
+                      : cuts.length
+                        ? "Generate different clips"
+                        : "Generate viral clips"}
                   </Button>
                   <Button variant="quiet" onClick={() => void chooseMovie()} disabled={status === "scanning"}>
                     Change movie
@@ -1295,7 +1328,7 @@ export function Studio() {
                     </Button>
                     {canRerank ? (
                       <Button variant="quiet" onClick={() => void rerank()}>
-                        Rank again with these lines
+                        Find different AI cuts with these lines
                       </Button>
                     ) : null}
                   </div>
