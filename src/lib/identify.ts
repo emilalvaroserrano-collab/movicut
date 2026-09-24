@@ -102,6 +102,8 @@ type Payload = {
     lines: string;
     openLine: string;
     closingLine: string;
+    storyReason: string;
+    storyContext: string;
     motion: number;
     contrast: number;
     lum: number;
@@ -130,6 +132,8 @@ export const judgeMoments = createServerFn({ method: "POST" })
         lines: String(moment.lines ?? "").slice(0, 620),
         openLine: String(moment.openLine ?? "").slice(0, 160),
         closingLine: String(moment.closingLine ?? "").slice(0, 180),
+        storyReason: String(moment.storyReason ?? "").slice(0, 240),
+        storyContext: String(moment.storyContext ?? "").slice(0, 300),
         motion: Number(moment.motion) || 0,
         contrast: Number(moment.contrast) || 0,
         lum: Number(moment.lum) || 0,
