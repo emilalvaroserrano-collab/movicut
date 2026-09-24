@@ -283,9 +283,16 @@ type ResponseContent =
   | { type: "input_text"; text: string }
   | { type: "input_image"; image_url: string; detail: "high" };
 
-function buildPrompt(clipped: JudgeIn[]): string {
+function buildPrompt(clipped: JudgeIn[], storyContext: string): string {
   return [
     "You are MOVICUT's final short-form scene selector. Your decision overrides the browser heuristic.",
+    storyContext
+      ? "You have the full movie story transcript/context below. Use it to understand relationships, setup, callbacks, motives, and payoff, but judge whether each final clip still works for a cold viewer."
+      : "No full-story transcript was available; judge only from the candidate evidence.",
+    storyContext ? "" : null,
+    storyContext ? "FULL STORY CONTEXT" : null,
+    storyContext ? storyContext : null,
+    storyContext ? "" : null,
     "The heuristic score/category is ONLY a discovery hint. Do not simply pick the highest prefilter score and do not trust its category when the actual scene evidence disagrees.",
     "",
     "TASK",
@@ -335,7 +342,7 @@ function buildPrompt(clipped: JudgeIn[]): string {
         .filter(Boolean)
         .join(" | "),
     ),
-  ].join("\n");
+  ].filter((line): line is string => line !== null).join("\n");
 }
 
 async function readStructuredStream(res: Response): Promise<string> {
@@ -510,7 +517,10 @@ async function retitleSelectedCuts(opts: {
   return final;
 }
 
-export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeResult> {
+export async function judgeMomentsOnServer(
+  moments: JudgeIn[],
+  storyContext = "",
+): Promise<JudgeResult> {
   const gatewayKey = process.env.AI_GATEWAY_API_KEY;
   const directKey = process.env.XAI_API_KEY;
   const apiKey = gatewayKey ?? directKey;
@@ -540,7 +550,9 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
     );
   if (clipped.length < 2) return { ok: false, error: "Not enough candidate scenes to judge." };
 
-  const content: ResponseContent[] = [{ type: "input_text", text: buildPrompt(clipped) }];
+  const content: ResponseContent[] = [
+    { type: "input_text", text: buildPrompt(clipped, storyContext.slice(0, 60_000)) },
+  ];
   for (const moment of clipped) {
     content.push({ type: "input_text", text: `${moment.id} — OPENING FRAME` });
     content.push({
