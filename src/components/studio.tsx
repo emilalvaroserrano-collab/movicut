@@ -765,7 +765,7 @@ export function Studio() {
           );
           if (!duplicate) seen.push({ start: cut.start, end: cut.end });
         }
-        seenWindowsRef.current = seen.slice(-30);
+        seenWindowsRef.current = seen.slice(-100);
       }
 
       if (!manualLockRef.current) {
