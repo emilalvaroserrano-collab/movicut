@@ -43,7 +43,7 @@ export function cleanTitle(raw: string): string {
   return marked.join("\n");
 }
 
-export function cutsFromJudgement(fallback: Cut[], shots: MomentShot[], judged: JudgedCut[]): Cut[] {
+export function cutsFromJudgement(shots: MomentShot[], judged: JudgedCut[]): Cut[] {
   if (!judged.length) return [];
   const byId = new Map(shots.map((shot) => [shot.id, shot]));
   const next: Cut[] = [];
@@ -61,6 +61,8 @@ export function cutsFromJudgement(fallback: Cut[], shots: MomentShot[], judged: 
       score: shot.score,
       viralScore: Math.max(0, Math.min(100, Math.round(row.viralScore ?? shot.score * 100))),
       hookScore: Math.max(0, Math.min(100, Math.round(row.hookScore ?? shot.score * 100))),
+      standaloneScore: Math.max(0, Math.min(100, Math.round(row.standaloneScore))),
+      payoffScore: Math.max(0, Math.min(100, Math.round(row.payoffScore))),
       title: cleanTitle(row.title),
       reason:
         row.reason ||
