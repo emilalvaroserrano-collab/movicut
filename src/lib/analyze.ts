@@ -597,7 +597,12 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
   };
 }
 
-export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]): Moment[] {
+export function spreadMoments(
+  samples: Sample[],
+  duration: number,
+  cues: Cue[],
+  avoid: Array<{ start: number; end: number }> = [],
+): Moment[] {
   if (duration < 50 || samples.length < 2) return [];
   const lead = duration > 20 * 60 ? Math.min(150, duration * 0.02) : 0;
   const tail = duration > 20 * 60 ? Math.min(180, duration * 0.035) : 0;
@@ -646,11 +651,15 @@ export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]):
   const pickedDrafts: Draft[] = [];
   const MAX_AI_CANDIDATES = 10;
 
-  const canAdd = (draft: Draft, gap: number) =>
-    !pickedDrafts.some((picked) => overlaps(picked, draft, gap));
+  const isAvoided = (draft: Draft, gap: number) =>
+    avoid.some((window) => overlaps(window, draft, gap));
 
-  const addDraft = (draft: Draft, gap = 8) => {
-    if (pickedDrafts.length >= MAX_AI_CANDIDATES || !canAdd(draft, gap)) return false;
+  const canAdd = (draft: Draft, gap: number, allowAvoided = false) =>
+    !pickedDrafts.some((picked) => overlaps(picked, draft, gap)) &&
+    (allowAvoided || !isAvoided(draft, 10));
+
+  const addDraft = (draft: Draft, gap = 8, allowAvoided = false) => {
+    if (pickedDrafts.length >= MAX_AI_CANDIDATES || !canAdd(draft, gap, allowAvoided)) return false;
     const frame = bestFrameAt(samples, draft.start + 0.4, Math.min(draft.end, draft.start + 5), draft.category);
     if (frame && frame.lum < 0.045 && frame.contrast < 0.025 && draft.energy < 0.18) return false;
     pickedDrafts.push(draft);
@@ -684,6 +693,15 @@ export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]):
     for (const draft of ranked) {
       if (pickedDrafts.length >= MAX_AI_CANDIDATES) break;
       addDraft(draft, 3);
+    }
+  }
+
+  // If the user asked for alternatives and the film does not contain enough
+  // distinct windows, reuse a previous region only as the final resort.
+  if (pickedDrafts.length < Math.min(4, ranked.length)) {
+    for (const draft of ranked) {
+      if (pickedDrafts.length >= MAX_AI_CANDIDATES) break;
+      addDraft(draft, 3, true);
     }
   }
 
@@ -790,8 +808,9 @@ export async function analyzeMovie(opts: {
   cues: Cue[];
   signal: AbortSignal;
   onProgress: (ratio: number, label: string) => void;
+  avoidCuts?: Array<{ start: number; end: number }>;
 }): Promise<{ cuts: Cut[]; shots: MomentShot[]; samples: Sample[]; usedAudio: boolean }> {
-  const { video, file, duration, cues, signal, onProgress } = opts;
+  const { video, file, duration, cues, signal, onProgress, avoidCuts = [] } = opts;
   const canvas = document.createElement("canvas");
   canvas.width = 48;
   canvas.height = 27;
@@ -838,7 +857,7 @@ export async function analyzeMovie(opts: {
   onProgress(0.93, "Building candidate scenes");
   const norm = normalizeSamples(samples);
   const cuts = pickCuts(norm, duration, cues, !!energy);
-  const moments = spreadMoments(norm, duration, cues);
+  const moments = spreadMoments(norm, duration, cues, avoidCuts);
 
   for (let i = 0; i < cuts.length; i++) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
