@@ -18,8 +18,12 @@ export type Cut = {
   score: number;
   /** AI + signal estimate of short-form retention potential, 0-100. */
   viralScore?: number;
-  /** Strength of the first 3-5 seconds, 0-100. */
+  /** Strength of the first 1-3 seconds, 0-100. */
   hookScore?: number;
+  /** Whether the clip works without prior movie context, 0-100. */
+  standaloneScore?: number;
+  /** Whether the clip delivers a payoff before it ends, 0-100. */
+  payoffScore?: number;
   title: string;
   reason: string;
   quote?: string;
