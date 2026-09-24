@@ -866,12 +866,12 @@ export async function analyzeMovie(opts: {
       shots.push({ ...moment, openingImage, thumbnailImage, endingImage });
     }
     onProgress(
-      0.93 + (0.06 * (i + 1)) / Math.max(1, moments.length),
+      0.93 + (0.025 * (i + 1)) / Math.max(1, moments.length),
       "Building a diverse scene pool for Grok 4.7",
     );
   }
 
-  onProgress(1, "Cuts are ready");
+  onProgress(0.96, "Candidate pool is ready");
   return { cuts, shots, samples: norm, usedAudio: !!energy };
 }
 
