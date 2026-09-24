@@ -1,8 +1,9 @@
 import type { Cut } from "@/lib/analyze";
 import type { Cue } from "@/lib/subtitles";
 
-const LS_KEY = "movicut-project-v2";
-const LEGACY_LS_KEY = "hookcut-project-v1";
+const LS_KEY = "movicut-project-v3";
+const LEGACY_KEYS = ["movicut-project-v2", "hookcut-project-v1"];
+export const CURRENT_SELECTION_VERSION = 3;
 const DB_NAME = "movicut";
 const STORE = "handles";
 
@@ -12,11 +13,14 @@ export type ProjectSnapshot = {
   cuts: Cut[];
   cues: Cue[];
   srtName?: string;
+  selectionVersion?: number;
 };
 
 export function loadProject(): ProjectSnapshot | null {
   try {
-    const raw = localStorage.getItem(LS_KEY) ?? localStorage.getItem(LEGACY_LS_KEY);
+    const raw =
+      localStorage.getItem(LS_KEY) ??
+      LEGACY_KEYS.map((key) => localStorage.getItem(key)).find((value) => value != null);
     if (!raw) return null;
     const data = JSON.parse(raw) as ProjectSnapshot;
     if (!data || typeof data.name !== "string" || !Array.isArray(data.cuts)) return null;
@@ -28,7 +32,10 @@ export function loadProject(): ProjectSnapshot | null {
 
 export function saveProject(project: ProjectSnapshot): void {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(project));
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({ ...project, selectionVersion: CURRENT_SELECTION_VERSION }),
+    );
   } catch {
     /* the movie still plays; only the reminder is skipped */
   }
