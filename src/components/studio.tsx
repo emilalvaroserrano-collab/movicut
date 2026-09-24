@@ -767,13 +767,9 @@ export function Studio() {
         try {
           const judged = await judgeMoments({
             data: {
-              storyContext: [
-                storySummaryRef.current ? `STORY SUMMARY: ${storySummaryRef.current}` : "",
-                story.context,
-              ]
-                .filter(Boolean)
-                .join("\n")
-                .slice(0, 60_000),
+              storyContext: storySummaryRef.current
+                ? `GEMINI FULL-STORY SUMMARY: ${storySummaryRef.current}`
+                : "",
               moments: enrichedShots.map((shot) => ({
                 id: shot.id,
                 start: shot.start,
