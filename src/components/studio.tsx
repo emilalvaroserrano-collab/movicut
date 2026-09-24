@@ -76,7 +76,12 @@ function windowKey(cut: { start: number; end: number }): string {
 }
 
 function isUploadedSubs(name: string | null | undefined): boolean {
-  return !!name && name !== "Heard from the cut" && name !== "Pasted lines";
+  return (
+    !!name &&
+    name !== "Heard from the cut" &&
+    name !== "Heard during AI scan" &&
+    name !== "Pasted lines"
+  );
 }
 
 function MagnetBar(props: {
