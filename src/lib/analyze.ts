@@ -856,15 +856,10 @@ export async function analyzeMovie(opts: {
 
   onProgress(0.93, "Building candidate scenes");
   const norm = normalizeSamples(samples);
-  const cuts = pickCuts(norm, duration, cues, !!energy);
+  // Browser heuristics only discover candidates. They no longer manufacture
+  // publishable cuts/titles when the AI selector is unavailable.
+  const cuts: Cut[] = [];
   const moments = spreadMoments(norm, duration, cues, avoidCuts);
-
-  for (let i = 0; i < cuts.length; i++) {
-    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    await seekTo(video, Math.min(duration - 0.08, cuts[i].start + 1.25), signal);
-    const thumb = grabThumb(video);
-    if (thumb) cuts[i].thumb = thumb;
-  }
 
   const shots: MomentShot[] = [];
   for (let i = 0; i < moments.length; i++) {
