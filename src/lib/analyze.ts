@@ -16,10 +16,16 @@ export type Cut = {
   end: number;
   category: Category;
   score: number;
+  /** AI + signal estimate of short-form retention potential, 0-100. */
+  viralScore?: number;
+  /** Strength of the first 3-5 seconds, 0-100. */
+  hookScore?: number;
   title: string;
   reason: string;
   quote?: string;
   thumb?: string;
+  /** Timestamp selected specifically for the cover/thumbnail. */
+  thumbnailAt?: number;
 };
 
 export const CATEGORY_ORDER: Category[] = ["epic", "comedy", "dialogue", "moral", "action", "revenge"];
@@ -337,9 +343,25 @@ function openingLine(cues: Cue[], start: number): string {
 }
 
 function openingValue(st: WindowStats, line: string): number {
-  const dead = st.lum < 0.07 || st.contrast < 0.035 ? 0.62 : 0;
-  const speech = line.trim().length > 8 ? 0.26 : 0;
-  return clamp01(st.motion * 0.46 + st.audio * 0.34 + st.contrast * 0.36 + st.motionVar * 0.16 + speech - dead);
+  const dead = st.lum < 0.07 || st.contrast < 0.035 ? 0.72 : 0;
+  const trimmed = line.trim();
+  const speech = trimmed.length > 8 ? 0.22 : 0;
+  const punch = /[!?]/.test(trimmed) ? 0.12 : 0;
+  const direct = /\b(you|your|why|what|how|never|stop|wait|no|don't|cant|can't|won't)\b/i.test(trimmed)
+    ? 0.1
+    : 0;
+  const overload = st.motion > 0.92 && st.contrast < 0.08 ? 0.08 : 0;
+  return clamp01(
+    st.motion * 0.4 +
+      st.audio * 0.24 +
+      st.contrast * 0.42 +
+      st.motionVar * 0.18 +
+      speech +
+      punch +
+      direct -
+      dead -
+      overload,
+  );
 }
 
 function placeHook(samples: Sample[], rough: number, duration: number, cues: Cue[]): { start: number; end: number } {
@@ -442,6 +464,7 @@ export type Moment = {
   lines: string;
   openLine: string;
   frameAt: number;
+  thumbnailAt: number;
 };
 
 function windowLines(cues: Cue[], start: number, end: number): string {
@@ -495,6 +518,7 @@ type Draft = {
 function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
   const open = windowStats(samples, draft.start, draft.start + 5);
   const frame = bestFrameAt(samples, draft.start + 0.4, Math.min(draft.end, draft.start + 5), draft.category);
+  const thumbnail = bestFrameAt(samples, draft.start + 0.8, draft.end - 0.8, draft.category);
   return {
     id: `m${index}`,
     start: draft.start,
@@ -509,6 +533,7 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
     lines: draft.lines,
     openLine: draft.openLine,
     frameAt: frame?.t ?? draft.start + 2.5,
+    thumbnailAt: thumbnail?.t ?? frame?.t ?? draft.start + 2.5,
   };
 }
 
@@ -659,7 +684,10 @@ async function audioEnergy(file: File, duration: number): Promise<Float32Array |
   }
 }
 
-export type MomentShot = Moment & { image: string };
+export type MomentShot = Moment & {
+  openingImage: string;
+  thumbnailImage: string;
+};
 
 export async function analyzeMovie(opts: {
   video: HTMLVideoElement;
@@ -729,10 +757,18 @@ export async function analyzeMovie(opts: {
   for (let i = 0; i < moments.length; i++) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const moment = moments[i];
+
     await seekTo(video, Math.min(duration - 0.08, Math.max(0, moment.frameAt)), signal);
-    const image = grabFrame(video, 320, 180, 0.62);
-    if (image) shots.push({ ...moment, image });
-    onProgress(0.93 + (0.06 * (i + 1)) / Math.max(1, moments.length), "Pulling a frame from each stretch");
+    const openingImage = grabFrame(video, 320, 180, 0.56);
+
+    await seekTo(video, Math.min(duration - 0.08, Math.max(0, moment.thumbnailAt)), signal);
+    const thumbnailImage = grabFrame(video, 360, 203, 0.62);
+
+    if (openingImage && thumbnailImage) shots.push({ ...moment, openingImage, thumbnailImage });
+    onProgress(
+      0.93 + (0.06 * (i + 1)) / Math.max(1, moments.length),
+      "Choosing the strongest opening and cover frames",
+    );
   }
 
   onProgress(1, "Cuts are ready");
