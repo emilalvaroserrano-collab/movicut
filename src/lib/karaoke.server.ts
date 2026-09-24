@@ -3,7 +3,9 @@ export type HeardWord = { text: string; start: number; end: number };
 export type TranscribeResult = { ok: true; words: HeardWord[] } | { ok: false; error: string };
 
 const WINDOW_MS = 10 * 60 * 1000;
-const MAX_CALLS = 24;
+// Candidate-dialogue analysis can consume up to 10 calls per scan before
+// selected-cut karaoke runs. Keep enough headroom for several regenerate cycles.
+const MAX_CALLS = 80;
 
 function takeSlot(): boolean {
   const g = globalThis as typeof globalThis & { __karaokeHits?: number[] };
@@ -84,6 +86,9 @@ async function transcribeDirectXai(binary: Buffer, apiKey: string): Promise<Hear
   const send = () => {
     const form = new FormData();
     form.append("model", "grok-voice-transcribe-2.0");
+    form.append("format", "true");
+    form.append("filler_words", "false");
+    // xAI requires option fields before the file field.
     form.append("file", new File([new Uint8Array(binary)], "cut.wav", { type: "audio/wav" }));
     return fetch("https://api.x.ai/v1/stt", {
       method: "POST",
@@ -100,10 +105,10 @@ async function transcribeDirectXai(binary: Buffer, apiKey: string): Promise<Hear
 }
 
 export async function transcribeWavOnServer(wavBase64: string): Promise<TranscribeResult> {
-  const gatewayKey = process.env.AI_GATEWAY_API_KEY;
   const directKey = process.env.XAI_API_KEY;
-  if (!gatewayKey && !directKey) {
-    return { ok: false, error: "Karaoke writing needs AI_GATEWAY_API_KEY or XAI_API_KEY." };
+  const gatewayKey = process.env.AI_GATEWAY_API_KEY;
+  if (!directKey && !gatewayKey) {
+    return { ok: false, error: "Karaoke writing needs XAI_API_KEY or AI_GATEWAY_API_KEY." };
   }
   if (!takeSlot()) {
     return { ok: false, error: "Karaoke is paused for a few minutes. Paste the lines if you need them now." };
@@ -114,19 +119,22 @@ export async function transcribeWavOnServer(wavBase64: string): Promise<Transcri
     return { ok: false, error: "That cut's audio can't be captioned." };
   }
 
+  // Keep the direct xAI transcription path first because this is the
+  // timestamped karaoke path that was already working before Gateway was
+  // introduced for scene-selection/evaluation. Gateway remains a fallback.
+  if (directKey) {
+    try {
+      const words = await transcribeDirectXai(binary, directKey);
+      if (words.length) return { ok: true, words };
+    } catch {
+      // fall through to Gateway when it is also configured
+    }
+  }
+
   if (gatewayKey) {
     try {
       const words = await transcribeWithGateway(binary);
       if (words.length) return { ok: true, words };
-    } catch {
-      // Direct xAI remains a migration fallback when an existing XAI_API_KEY
-      // is configured. New deployments only need the Gateway key.
-    }
-  }
-
-  if (directKey) {
-    try {
-      return { ok: true, words: await transcribeDirectXai(binary, directKey) };
     } catch {
       // fall through to the user-facing message below
     }
