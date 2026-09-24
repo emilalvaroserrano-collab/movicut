@@ -8,7 +8,9 @@ export type JudgedCut = {
   reason: string;
   viralScore: number;
   hookScore: number;
-  thumbnailChoice: "opening" | "peak";
+  standaloneScore: number;
+  payoffScore: number;
+  thumbnailChoice: "opening" | "peak" | "ending";
 };
 
 const WEAK_HOOKS = new Set(["THE", "THIS", "A", "AN", "IT", "AND", "OF", "TO", "IN", "ON", "IS", "FOR", "YOU"]);
@@ -42,6 +44,7 @@ export function cleanTitle(raw: string): string {
 }
 
 export function cutsFromJudgement(fallback: Cut[], shots: MomentShot[], judged: JudgedCut[]): Cut[] {
+  if (!judged.length) return [];
   const byId = new Map(shots.map((shot) => [shot.id, shot]));
   const next: Cut[] = [];
   const overlaps = (start: number, end: number) => next.some((cut) => start < cut.end + 12 && cut.start < end + 12);
@@ -59,23 +62,27 @@ export function cutsFromJudgement(fallback: Cut[], shots: MomentShot[], judged: 
       viralScore: Math.max(0, Math.min(100, Math.round(row.viralScore ?? shot.score * 100))),
       hookScore: Math.max(0, Math.min(100, Math.round(row.hookScore ?? shot.score * 100))),
       title: cleanTitle(row.title),
-      reason: row.reason || "The first few seconds create a clear reason to keep watching.",
+      reason:
+        row.reason ||
+        `Hook ${row.hookScore} · standalone ${row.standaloneScore} · payoff ${row.payoffScore}.`,
       quote: shot.quote ?? undefined,
-      thumb: row.thumbnailChoice === "opening" ? shot.openingImage : shot.thumbnailImage,
-      thumbnailAt: row.thumbnailChoice === "opening" ? shot.frameAt : shot.thumbnailAt,
+      thumb:
+        row.thumbnailChoice === "opening"
+          ? shot.openingImage
+          : row.thumbnailChoice === "ending"
+            ? shot.endingImage
+            : shot.thumbnailImage,
+      thumbnailAt:
+        row.thumbnailChoice === "opening"
+          ? shot.frameAt
+          : row.thumbnailChoice === "ending"
+            ? Math.max(shot.start, shot.end - 2.2)
+            : shot.thumbnailAt,
     });
     if (next.length >= 5) break;
   }
 
-  if (next.length < 5) {
-    for (const cut of [...fallback].sort((a, b) => b.score - a.score)) {
-      if (next.length >= 5) break;
-      if (overlaps(cut.start, cut.end)) continue;
-      next.push({ ...cut, id: `${cut.category}-${Math.round(cut.start)}-${next.length}` });
-    }
-  }
-
-  return next.length ? next : fallback;
+  return next;
 }
 
 type Payload = {
@@ -95,13 +102,14 @@ type Payload = {
     audio: number;
     openingImage: string;
     thumbnailImage: string;
+    endingImage: string;
     thumbnailAt: number;
   }[];
 };
 
 export const judgeMoments = createServerFn({ method: "POST" })
   .validator((input: Payload) => {
-    if (!input || !Array.isArray(input.moments) || input.moments.length < 2 || input.moments.length > 6) {
+    if (!input || !Array.isArray(input.moments) || input.moments.length < 2 || input.moments.length > 10) {
       throw new Error("Not enough scenes to read.");
     }
     return {
@@ -119,8 +127,9 @@ export const judgeMoments = createServerFn({ method: "POST" })
         contrast: Number(moment.contrast) || 0,
         lum: Number(moment.lum) || 0,
         audio: Number(moment.audio) || 0,
-        openingImage: String(moment.openingImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 180_000),
-        thumbnailImage: String(moment.thumbnailImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 180_000),
+        openingImage: String(moment.openingImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 120_000),
+        thumbnailImage: String(moment.thumbnailImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 120_000),
+        endingImage: String(moment.endingImage ?? "").replace(/^data:image\/jpeg;base64,/, "").slice(0, 120_000),
         thumbnailAt: Number(moment.thumbnailAt) || 0,
       })),
     };
