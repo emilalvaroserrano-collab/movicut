@@ -156,6 +156,7 @@ export function Studio() {
   const fileRef = useRef<File | null>(null);
   const samplesRef = useRef<Sample[] | null>(null);
   const usedAudioRef = useRef(false);
+  const seenWindowsRef = useRef<Array<{ start: number; end: number }>>([]);
   const demoModeRef = useRef(true);
   const demoPlayingRef = useRef(true);
   const playingRef = useRef(false);
@@ -497,6 +498,7 @@ export function Studio() {
     };
     const previous = fileRef.current;
     const switching = previous != null && (previous.name !== file.name || previous.size !== file.size);
+    if (!previous || switching) seenWindowsRef.current = [];
     fileRef.current = file;
     demoModeRef.current = false;
     demoPlayingRef.current = false;
@@ -521,6 +523,7 @@ export function Studio() {
 
       setCuts(restoredCuts);
       setActiveId(restoredCuts[0]?.id ?? null);
+      seenWindowsRef.current = restoredCuts.map((cut) => ({ start: cut.start, end: cut.end }));
 
       if (restoredCues.length) {
         setCues(restoredCues);
@@ -648,7 +651,7 @@ export function Studio() {
       setError("This file is shorter than 50 seconds, so it can't hold a portrait cut.");
       return;
     }
-    const previousCuts = cutsRef.current.map((cut) => ({ start: cut.start, end: cut.end }));
+    const previousCuts = [...seenWindowsRef.current];
     const ac = new AbortController();
     abortRef.current = ac;
     setStatus("scanning");
@@ -754,6 +757,16 @@ export function Studio() {
 
       setCuts(cuts);
       setActiveId(cuts[0]?.id ?? null);
+      if (cuts.length) {
+        const seen = [...seenWindowsRef.current];
+        for (const cut of cuts) {
+          const duplicate = seen.some(
+            (window) => Math.abs(window.start - cut.start) < 2 && Math.abs(window.end - cut.end) < 2,
+          );
+          if (!duplicate) seen.push({ start: cut.start, end: cut.end });
+        }
+        seenWindowsRef.current = seen.slice(-30);
+      }
 
       if (!manualLockRef.current) {
         const heardWindows = new Map<string, string>();
