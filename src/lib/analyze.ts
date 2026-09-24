@@ -505,9 +505,9 @@ function windowLines(cues: Cue[], start: number, end: number): string {
     .filter((c) => c.end > start && c.start < end)
     .map((c) => c.text.replace(/\s+/g, " ").trim())
     .filter((text) => text.length > 1 && text.length < 90)
-    .slice(0, 4)
+    .slice(0, 8)
     .join(" / ")
-    .slice(0, 240);
+    .slice(0, 520);
 }
 
 function bestFrameAt(samples: Sample[], start: number, end: number, category: Category): Sample | null {
@@ -633,26 +633,58 @@ export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]):
   }
   if (!drafts.length) return [];
 
+  // Heuristics discover a broad pool; Grok 4.7 makes the final editorial decision.
+  // Keep the pool diverse by category and timeline so quiet dialogue/reveal scenes
+  // are not crowded out by high-motion action candidates.
   const ranked = [...drafts].sort((a, b) => b.energy - a.energy);
-  const picked: Moment[] = [];
-  for (const draft of ranked) {
-    if (picked.length >= 6) break;
-    if (picked.some((cut) => overlaps(cut, draft, 16))) continue;
+  const pickedDrafts: Draft[] = [];
+  const MAX_AI_CANDIDATES = 10;
+
+  const canAdd = (draft: Draft, gap: number) =>
+    !pickedDrafts.some((picked) => overlaps(picked, draft, gap));
+
+  const addDraft = (draft: Draft, gap = 8) => {
+    if (pickedDrafts.length >= MAX_AI_CANDIDATES || !canAdd(draft, gap)) return false;
     const frame = bestFrameAt(samples, draft.start + 0.4, Math.min(draft.end, draft.start + 5), draft.category);
-    if (frame && frame.lum < 0.05 && frame.contrast < 0.03 && draft.energy < 0.22) continue;
-    picked.push(toMoment(draft, samples, picked.length));
+    if (frame && frame.lum < 0.045 && frame.contrast < 0.025 && draft.energy < 0.18) return false;
+    pickedDrafts.push(draft);
+    return true;
+  };
+
+  // First pass: one strong representative from each heuristic category.
+  for (const category of CATEGORY_ORDER) {
+    const candidate = ranked.find((draft) => draft.category === category && canAdd(draft, 8));
+    if (candidate) addDraft(candidate, 8);
   }
-  if (picked.length < 4) {
+
+  // Second pass: make sure different parts of the movie reach the model.
+  const bucketCount = Math.min(5, Math.max(1, Math.floor((to - from) / 180)));
+  const bucketSize = Math.max(1, (to - from) / bucketCount);
+  for (let bucket = 0; bucket < bucketCount && pickedDrafts.length < MAX_AI_CANDIDATES; bucket++) {
+    const bStart = from + bucket * bucketSize;
+    const bEnd = bucket === bucketCount - 1 ? to + 0.01 : bStart + bucketSize;
+    const candidate = ranked.find(
+      (draft) => draft.start >= bStart && draft.start < bEnd && canAdd(draft, 7),
+    );
+    if (candidate) addDraft(candidate, 7);
+  }
+
+  // Final pass: fill remaining slots by signal strength, then relax overlap slightly.
+  for (const draft of ranked) {
+    if (pickedDrafts.length >= MAX_AI_CANDIDATES) break;
+    addDraft(draft, 7);
+  }
+  if (pickedDrafts.length < Math.min(6, ranked.length)) {
     for (const draft of ranked) {
-      if (picked.length >= 6) break;
-      if (picked.some((cut) => Math.abs(cut.start - draft.start) < 8)) continue;
-      if (picked.some((cut) => overlaps(cut, draft, 12))) continue;
-      picked.push(toMoment(draft, samples, picked.length));
+      if (pickedDrafts.length >= MAX_AI_CANDIDATES) break;
+      addDraft(draft, 3);
     }
   }
 
-  picked.sort((a, b) => a.start - b.start);
-  return picked.slice(0, 6).map((moment, index) => ({ ...moment, id: `m${index}` }));
+  pickedDrafts.sort((a, b) => a.start - b.start);
+  return pickedDrafts
+    .slice(0, MAX_AI_CANDIDATES)
+    .map((draft, index) => toMoment(draft, samples, index));
 }
 
 export function seekTo(video: HTMLVideoElement, time: number, signal?: AbortSignal): Promise<void> {
@@ -742,6 +774,7 @@ async function audioEnergy(file: File, duration: number): Promise<Float32Array |
 export type MomentShot = Moment & {
   openingImage: string;
   thumbnailImage: string;
+  endingImage: string;
 };
 
 export async function analyzeMovie(opts: {
@@ -796,7 +829,7 @@ export async function analyzeMovie(opts: {
     }
   }
 
-  onProgress(0.93, "Choosing five cuts");
+  onProgress(0.93, "Building candidate scenes");
   const norm = normalizeSamples(samples);
   const cuts = pickCuts(norm, duration, cues, !!energy);
   const moments = spreadMoments(norm, duration, cues);
@@ -814,15 +847,21 @@ export async function analyzeMovie(opts: {
     const moment = moments[i];
 
     await seekTo(video, Math.min(duration - 0.08, Math.max(0, moment.frameAt)), signal);
-    const openingImage = grabFrame(video, 320, 180, 0.56);
+    const openingImage = grabFrame(video, 280, 158, 0.5);
 
     await seekTo(video, Math.min(duration - 0.08, Math.max(0, moment.thumbnailAt)), signal);
-    const thumbnailImage = grabFrame(video, 360, 203, 0.62);
+    const thumbnailImage = grabFrame(video, 320, 180, 0.56);
 
-    if (openingImage && thumbnailImage) shots.push({ ...moment, openingImage, thumbnailImage });
+    const endingAt = Math.max(moment.start, Math.min(duration - 0.08, moment.end - 2.2));
+    await seekTo(video, endingAt, signal);
+    const endingImage = grabFrame(video, 280, 158, 0.5);
+
+    if (openingImage && thumbnailImage && endingImage) {
+      shots.push({ ...moment, openingImage, thumbnailImage, endingImage });
+    }
     onProgress(
       0.93 + (0.06 * (i + 1)) / Math.max(1, moments.length),
-      "Choosing the strongest opening and cover frames",
+      "Building a diverse scene pool for Grok 4.7",
     );
   }
 
