@@ -30,6 +30,8 @@ export type Cut = {
   thumb?: string;
   /** Timestamp selected specifically for the cover/thumbnail. */
   thumbnailAt?: number;
+  /** Internal link back to the AI candidate used to create this cut. */
+  sourceMomentId?: string;
 };
 
 export const CATEGORY_ORDER: Category[] = ["epic", "comedy", "dialogue", "moral", "action", "revenge"];
