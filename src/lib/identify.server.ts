@@ -256,8 +256,20 @@ async function readStructuredStream(res: Response): Promise<string> {
 }
 
 export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeResult> {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) return { ok: false, error: "Grok 4.7 scene selection isn't available right now." };
+  const gatewayKey = process.env.AI_GATEWAY_API_KEY;
+  const directKey = process.env.XAI_API_KEY;
+  const apiKey = gatewayKey ?? directKey;
+  if (!apiKey) {
+    return {
+      ok: false,
+      error: "Grok 4.7 scene selection needs AI_GATEWAY_API_KEY (preferred) or XAI_API_KEY.",
+    };
+  }
+  const viaGateway = Boolean(gatewayKey);
+  const endpoint = viaGateway
+    ? "https://ai-gateway.vercel.sh/v1/responses"
+    : "https://api.x.ai/v1/responses";
+  const model = viaGateway ? "spacexai/grok-4.7" : "grok-4.7";
   if (!takeSlot()) return { ok: false, error: "Grok 4.7 scene selection is paused for a few minutes." };
 
   const clipped = moments
@@ -296,7 +308,7 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
   }
 
   const body = {
-    model: "grok-4.7",
+    model,
     temperature: 0,
     reasoning: { effort: "low" },
     store: false,
@@ -314,7 +326,7 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
   };
 
   const ask = () =>
-    fetch("https://api.x.ai/v1/responses", {
+    fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -347,5 +359,17 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
   if (cuts === null) {
     return { ok: false, error: "Grok 4.7 returned invalid structured scene-selection JSON." };
   }
+
+  if (viaGateway && cuts.length) {
+    try {
+      const { evaluateCutsWithJev } = await import("@/lib/scene-evaluator.server");
+      const evaluated = await evaluateCutsWithJev(cuts, clipped);
+      return { ok: true, cuts: evaluated };
+    } catch {
+      // Jev is a second opinion. A verifier outage must not discard a valid
+      // strict-schema Grok 4.7 selection.
+    }
+  }
+
   return { ok: true, cuts };
 }
