@@ -928,6 +928,15 @@ export function Studio() {
     }
   }
 
+  function saveCover() {
+    const cut = activeCutRef.current;
+    if (!cut?.thumb) return;
+    const a = document.createElement("a");
+    a.href = cut.thumb;
+    a.download = `movicut-cover-${cut.category}-${Math.round(cut.start)}s.jpg`;
+    a.click();
+  }
+
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
@@ -1336,6 +1345,10 @@ export function Studio() {
             >
               <RotateCcw className="size-4" aria-hidden="true" />
               Restart cut
+            </Button>
+            <Button variant="quiet" onClick={saveCover} disabled={!active?.thumb || recording}>
+              <Download className="size-4" aria-hidden="true" />
+              Cover JPG
             </Button>
             <Button onClick={() => void recordCut()} disabled={!active || recording || cutLen < 49.5}>
               <Download className="size-4" aria-hidden="true" />
