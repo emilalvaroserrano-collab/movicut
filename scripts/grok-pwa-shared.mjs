@@ -401,15 +401,18 @@ function insertBeforeHeadClose(html, snippet) {
 }
 
 export function normalizeHeadContext(ctx = {}) {
-  const cwd = ctx.cwd ?? process.cwd();
-  // Middleware passes a baked `site`. Still consult the workspace so a
-  // public/og.jpg generated after that snapshot (or missed by a wrong cwd)
-  // wins over the og.grok.me placeholder. Vercel has no public/ to read, so
-  // a correct bake is unchanged.
-  const site = applyCustomCardFromFs(
-    ctx.site !== undefined ? ctx.site : snapshotOgIdentity(cwd).site,
-    cwd,
-  );
+  // Only consult workspace files when a caller explicitly supplies a workspace
+  // root. This keeps the pure helpers deterministic in tests and library use,
+  // while Vite/Nitro still pass their real root and retain disk-card discovery.
+  const hasWorkspace = ctx.cwd !== undefined;
+  const cwd = hasWorkspace ? ctx.cwd : join(process.cwd(), ".grok-no-workspace");
+  const baseSite =
+    ctx.site !== undefined
+      ? ctx.site
+      : hasWorkspace
+        ? snapshotOgIdentity(cwd).site
+        : {};
+  const site = hasWorkspace ? applyCustomCardFromFs(baseSite, cwd) : baseSite;
   const appName = resolveOgTitle(site, ctx.appName ?? DEFAULT_APP_NAME, ctx.host ?? "");
   return {
     appName,
