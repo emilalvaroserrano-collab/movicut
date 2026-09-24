@@ -123,7 +123,7 @@ export const judgeMoments = createServerFn({ method: "POST" })
         category: String(moment.category).slice(0, 16),
         score: Number(moment.score) || 0,
         quote: String(moment.quote ?? "").slice(0, 140),
-        lines: String(moment.lines ?? "").slice(0, 240),
+        lines: String(moment.lines ?? "").slice(0, 620),
         openLine: String(moment.openLine ?? "").slice(0, 160),
         closingLine: String(moment.closingLine ?? "").slice(0, 180),
         motion: Number(moment.motion) || 0,
