@@ -482,7 +482,7 @@ export function pickCuts(samples: Sample[], duration: number, cues: Cue[], hasAu
     score: Math.round(c.score * 1000) / 1000,
     viralScore: Math.round(clamp01(c.score) * 100),
     hookScore: Math.round(clamp01(c.score * 1.08) * 100),
-    title: titleFromQuote(c.quote, titleFor(c.category, c.start)),
+    title: titleFromQuote(c.quote, ""),
     reason: reasonFor(c.category, hasSubs, hasAudio),
     quote: c.quote ?? undefined,
   }));
@@ -654,12 +654,12 @@ export function spreadMoments(
   const isAvoided = (draft: Draft, gap: number) =>
     avoid.some((window) => overlaps(window, draft, gap));
 
-  const canAdd = (draft: Draft, gap: number, allowAvoided = false) =>
+  const canAdd = (draft: Draft, gap: number) =>
     !pickedDrafts.some((picked) => overlaps(picked, draft, gap)) &&
-    (allowAvoided || !isAvoided(draft, 10));
+    !isAvoided(draft, 10);
 
-  const addDraft = (draft: Draft, gap = 8, allowAvoided = false) => {
-    if (pickedDrafts.length >= MAX_AI_CANDIDATES || !canAdd(draft, gap, allowAvoided)) return false;
+  const addDraft = (draft: Draft, gap = 8) => {
+    if (pickedDrafts.length >= MAX_AI_CANDIDATES || !canAdd(draft, gap)) return false;
     const frame = bestFrameAt(samples, draft.start + 0.4, Math.min(draft.end, draft.start + 5), draft.category);
     if (frame && frame.lum < 0.045 && frame.contrast < 0.025 && draft.energy < 0.18) return false;
     pickedDrafts.push(draft);
@@ -693,15 +693,6 @@ export function spreadMoments(
     for (const draft of ranked) {
       if (pickedDrafts.length >= MAX_AI_CANDIDATES) break;
       addDraft(draft, 3);
-    }
-  }
-
-  // If the user asked for alternatives and the film does not contain enough
-  // distinct windows, reuse a previous region only as the final resort.
-  if (pickedDrafts.length < Math.min(4, ranked.length)) {
-    for (const draft of ranked) {
-      if (pickedDrafts.length >= MAX_AI_CANDIDATES) break;
-      addDraft(draft, 3, true);
     }
   }
 
