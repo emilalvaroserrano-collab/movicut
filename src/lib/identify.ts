@@ -56,8 +56,8 @@ export function cutsFromJudgement(fallback: Cut[], shots: MomentShot[], judged: 
       end: shot.end,
       category,
       score: shot.score,
-      viralScore: Math.max(0, Math.min(100, Math.round(row.viralScore || shot.score * 100))),
-      hookScore: Math.max(0, Math.min(100, Math.round(row.hookScore || shot.score * 100))),
+      viralScore: Math.max(0, Math.min(100, Math.round(row.viralScore ?? shot.score * 100))),
+      hookScore: Math.max(0, Math.min(100, Math.round(row.hookScore ?? shot.score * 100))),
       title: cleanTitle(row.title),
       reason: row.reason || "The first few seconds create a clear reason to keep watching.",
       quote: shot.quote ?? undefined,
@@ -88,6 +88,7 @@ type Payload = {
     quote: string;
     lines: string;
     openLine: string;
+    closingLine: string;
     motion: number;
     contrast: number;
     lum: number;
@@ -113,6 +114,7 @@ export const judgeMoments = createServerFn({ method: "POST" })
         quote: String(moment.quote ?? "").slice(0, 140),
         lines: String(moment.lines ?? "").slice(0, 240),
         openLine: String(moment.openLine ?? "").slice(0, 160),
+        closingLine: String(moment.closingLine ?? "").slice(0, 180),
         motion: Number(moment.motion) || 0,
         contrast: Number(moment.contrast) || 0,
         lum: Number(moment.lum) || 0,
