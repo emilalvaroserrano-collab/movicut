@@ -667,6 +667,7 @@ export function Studio() {
                 quote: shot.quote ?? "",
                 lines: shot.lines,
                 openLine: shot.openLine,
+                closingLine: shot.closingLine,
                 motion: shot.motion,
                 contrast: shot.contrast,
                 lum: shot.lum,
@@ -923,6 +924,7 @@ export function Studio() {
     window.setTimeout(() => URL.revokeObjectURL(url), 4000);
     setExportProgress(null);
     setRecording(false);
+    recordingRef.current = false;
     if (!exported.converted) {
       setError("MP4 encoding is not available on this device, so Movicut saved a WebM instead.");
     }
