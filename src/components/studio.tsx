@@ -25,6 +25,7 @@ import { extractCutWav, transcribeWav } from "@/lib/hear-cut";
 import { cutsFromJudgement, judgeMoments } from "@/lib/identify";
 import { hasMovieHandle, loadMovieHandle, loadProject, saveMovieHandle, saveProject } from "@/lib/storage";
 import { finalizeRecordedCut } from "@/lib/export-cut";
+import { hearCandidatePool, type CandidateDialogue } from "@/lib/candidate-dialogue";
 
 const BLURB: Record<Category, string> = {
   epic: "The turn that makes the rest of the film make sense.",
@@ -652,13 +653,51 @@ export function Studio() {
       usedAudioRef.current = result.usedAudio;
       let cuts = result.cuts;
       let readScenes = false;
+      let candidateDialogue = new Map<string, CandidateDialogue>();
+      let enrichedShots = result.shots;
+
       if (result.shots.length >= 2 && !ac.signal.aborted) {
-        setProgress(0.98);
+        const needsDialogue = result.shots.some(
+          (shot) => !shot.openLine.trim() && !shot.lines.trim() && !shot.closingLine.trim(),
+        );
+        if (needsDialogue) {
+          setProgress(0.965);
+          setProgressLabel("Listening to candidate dialogue before AI selection");
+          try {
+            candidateDialogue = await hearCandidatePool({
+              file,
+              moments: result.shots,
+              isStale: () => ac.signal.aborted,
+              onProgress: (done, total) => {
+                setProgress(0.965 + (done / Math.max(1, total)) * 0.02);
+                setProgressLabel(`Understanding candidate dialogue ${done}/${total}`);
+              },
+            });
+          } catch (err) {
+            if (err instanceof Error && err.message === "stale") {
+              throw new DOMException("Aborted", "AbortError");
+            }
+          }
+        }
+
+        enrichedShots = result.shots.map((shot) => {
+          const heard = candidateDialogue.get(shot.id);
+          return heard
+            ? {
+                ...shot,
+                lines: heard.transcript || shot.lines,
+                openLine: heard.openingLine || shot.openLine,
+                closingLine: heard.closingLine || shot.closingLine,
+              }
+            : shot;
+        });
+
+        setProgress(0.99);
         setProgressLabel("Grok 4.7 is choosing the strongest scenes");
         try {
           const judged = await judgeMoments({
             data: {
-              moments: result.shots.map((shot) => ({
+              moments: enrichedShots.map((shot) => ({
                 id: shot.id,
                 start: shot.start,
                 end: shot.end,
@@ -680,21 +719,42 @@ export function Studio() {
             },
           });
           if (judged.ok) {
-            cuts = cutsFromJudgement(result.shots, judged.cuts);
+            cuts = cutsFromJudgement(enrichedShots, judged.cuts);
             readScenes = true;
           }
         } catch {
-          /* the picture pass still stands */
+          /* Keep the browser fallback only when the AI request itself fails. */
         }
       }
+
       setCuts(cuts);
       setActiveId(cuts[0]?.id ?? null);
+
       if (!manualLockRef.current) {
-        heardWindowRef.current = new Map();
+        const heardWindows = new Map<string, string>();
+        const seeded = cuts.flatMap((cut) => {
+          const source = cut.sourceMomentId ? candidateDialogue.get(cut.sourceMomentId) : undefined;
+          if (!source?.words.length) return [];
+          heardWindows.set(cut.id, windowKey(cut));
+          return wordsToCues(source.words, cut.id);
+        });
+        heardWindowRef.current = heardWindows;
         setSilentIds([]);
-        setCues((prev) => prev.filter((cue) => cue.source !== "heard"));
+        setCues((prev) => {
+          const kept = prev.filter((cue) => cue.source !== "heard");
+          const next = [...kept, ...seeded].sort((a, b) => a.start - b.start);
+          cuesRef.current = next;
+          return next;
+        });
+        setSrtName((name) =>
+          isUploadedSubs(name) ? name : seeded.length ? "Heard during AI scan" : null,
+        );
       }
-      const signals = signalsFrom(result.usedAudio, cues.length > 0 || !manualLockRef.current);
+
+      setProgress(1);
+      setProgressLabel(readScenes ? "Grok 4.7 selection complete" : "Cuts are ready");
+      const signals = signalsFrom(result.usedAudio, cuesRef.current.length > 0 || candidateDialogue.size > 0);
+      if (candidateDialogue.size) signals.push("Candidate dialogue");
       if (readScenes) signals.push("Grok 4.7 final selection", "AI thumbnail pick", "Payoff check");
       setSignalList(signals);
       setCanRerank(true);
