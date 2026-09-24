@@ -1,0 +1,72 @@
+@import "tailwindcss";
+@import "@fontsource/anton/latin-400.css";
+@import "@fontsource/dm-sans/latin-400.css";
+@import "@fontsource/dm-sans/latin-500.css";
+@import "@fontsource/dm-sans/latin-700.css";
+@import "@fontsource/dm-sans/latin-800.css";
+
+@theme {
+  --color-bg: #0c0b09;
+  --color-surface: #171512;
+  --color-surface-2: #241f1a;
+  --color-fg: #f4efe4;
+  --color-muted: #a89b8c;
+  --color-line: #3a342c;
+  --color-pop: #ffe14a;
+  --color-ink: #1a1404;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-poster: "Anton", Impact, sans-serif;
+  --radius-card: 1.25rem;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  .stage-frame {
+    width: min(100%, 420px, calc(72vh * 9 / 16));
+    aspect-ratio: 9 / 16;
+  }
+  .poster-ink {
+    text-shadow:
+      0 0.08em 0 var(--color-bg),
+      0.06em 0.06em 0 var(--color-bg),
+      -0.06em 0.06em 0 var(--color-bg),
+      0.06em -0.06em 0 var(--color-bg),
+      -0.06em -0.06em 0 var(--color-bg),
+      0 0 0.35em var(--color-bg);
+  }
+  .karaoke-cut {
+    color: #f4efe4;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-shadow:
+      0 0.06em 0 #000,
+      0 0.14em 0.35em #000;
+  }
+  .karaoke-cut.is-hot {
+    color: #ffe14a;
+  }
+}

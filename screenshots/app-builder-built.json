@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Hookcut",
+      "hasCanvas": false,
+      "bodyTextLen": 1420,
+      "bodyTextHash": "8405e1e16a8bcc8a83cd5b23f3e012c15600c7770c21f3352298d2bf5c236fb0",
+      "bodyTextPrefix": "HOOKCUT Portrait cuts from the movie on this device 50–59 second",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Hookcut",
+      "hasCanvas": false,
+      "bodyTextLen": 1400,
+      "bodyTextHash": "c6fccd31eabeae096c4bb7133492dbf02c2db02e35b44643c1bf6753a283f142",
+      "bodyTextPrefix": "HOOKCUT Portrait cuts from the movie on this device FIVE SCENES.",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
