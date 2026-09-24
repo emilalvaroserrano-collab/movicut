@@ -31,6 +31,8 @@ import {
 } from "@/lib/storage";
 import { finalizeRecordedCut } from "@/lib/export-cut";
 import { hearCandidatePool, type CandidateDialogue } from "@/lib/candidate-dialogue";
+import { transcribeMovieStory, type StoryTranscript } from "@/lib/story-transcript";
+import { planStoryWindows } from "@/lib/story-planner.api";
 
 const BLURB: Record<Category, string> = {
   epic: "The turn that makes the rest of the film make sense.",
@@ -157,6 +159,9 @@ export function Studio() {
   const samplesRef = useRef<Sample[] | null>(null);
   const usedAudioRef = useRef(false);
   const seenWindowsRef = useRef<Array<{ start: number; end: number }>>([]);
+  const storyTranscriptRef = useRef<StoryTranscript | null>(null);
+  const storyFileKeyRef = useRef<string | null>(null);
+  const storySummaryRef = useRef("");
   const demoModeRef = useRef(true);
   const demoPlayingRef = useRef(true);
   const playingRef = useRef(false);
@@ -498,7 +503,12 @@ export function Studio() {
     };
     const previous = fileRef.current;
     const switching = previous != null && (previous.name !== file.name || previous.size !== file.size);
-    if (!previous || switching) seenWindowsRef.current = [];
+    if (!previous || switching) {
+      seenWindowsRef.current = [];
+      storyTranscriptRef.current = null;
+      storyFileKeyRef.current = null;
+      storySummaryRef.current = "";
+    }
     fileRef.current = file;
     demoModeRef.current = false;
     demoPlayingRef.current = false;
@@ -662,15 +672,49 @@ export function Studio() {
     video.muted = true;
     video.pause();
     try {
+      const fileKey = `${file.name}:${file.size}:${Math.round(fileMeta.duration * 1000)}`;
+      let story = storyFileKeyRef.current === fileKey ? storyTranscriptRef.current : null;
+
+      if (!story) {
+        setProgress(0.01);
+        setProgressLabel("Gemini is learning the whole movie story");
+        story = await transcribeMovieStory({
+          file,
+          duration: fileMeta.duration,
+          isStale: () => ac.signal.aborted,
+          onProgress: (ratio, label) => {
+            setProgress(ratio);
+            setProgressLabel(label);
+          },
+        });
+        storyTranscriptRef.current = story;
+        storyFileKeyRef.current = fileKey;
+      }
+
+      if (ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      setProgress(0.19);
+      setProgressLabel("Gemini is mapping the strongest story moments");
+      const storyPlan = await planStoryWindows({
+        data: {
+          transcript: story.context,
+          duration: fileMeta.duration,
+          avoid: previousCuts,
+        },
+      });
+      if (!storyPlan.ok) throw new Error(storyPlan.error);
+      storySummaryRef.current = storyPlan.summary;
+
+      const analysisCues = story.cues.length ? story.cues : cuesRef.current;
       const result = await analyzeMovie({
         video,
         file,
         duration: fileMeta.duration,
-        cues: cuesRef.current,
+        cues: analysisCues,
         avoidCuts: previousCuts,
+        preferredWindows: storyPlan.windows,
         signal: ac.signal,
         onProgress: (ratio, label) => {
-          setProgress(ratio);
+          setProgress(0.22 + ratio * 0.72);
           setProgressLabel(label);
         },
       });
@@ -723,6 +767,13 @@ export function Studio() {
         try {
           const judged = await judgeMoments({
             data: {
+              storyContext: [
+                storySummaryRef.current ? `STORY SUMMARY: ${storySummaryRef.current}` : "",
+                story.context,
+              ]
+                .filter(Boolean)
+                .join("\n")
+                .slice(0, 60_000),
               moments: enrichedShots.map((shot) => ({
                 id: shot.id,
                 start: shot.start,
@@ -791,7 +842,11 @@ export function Studio() {
 
       setProgress(1);
       setProgressLabel(readScenes ? "Specific AI cuts and titles are ready" : "AI selection stopped");
-      const signals = signalsFrom(result.usedAudio, cuesRef.current.length > 0 || candidateDialogue.size > 0);
+      const signals = signalsFrom(
+        result.usedAudio,
+        cuesRef.current.length > 0 || candidateDialogue.size > 0,
+      );
+      signals.push("Gemini full-story transcript", "Story-aware windows");
       if (candidateDialogue.size) signals.push("Candidate dialogue");
       if (readScenes) signals.push("Grok 4.7 final selection", "AI thumbnail pick", "Payoff check");
       setSignalList(signals);
@@ -1109,7 +1164,7 @@ export function Studio() {
               </p>
               <ol className="mt-5 grid gap-2 text-sm text-fg">
                 <li>1. Open the movie. The full source file remains on this device.</li>
-                <li>2. AI ranks strong standalone moments, hooks, and cover frames.</li>
+                <li>2. Gemini transcribes the full story, then AI ranks story-aware moments, hooks, and covers.</li>
                 <li>3. Review, play, edit, then export a social-ready vertical clip.</li>
               </ol>
               {srtName ? (
@@ -1154,7 +1209,7 @@ export function Studio() {
                 Ranking keeps a cut only when the first 3 to 5 seconds can stop a scroll. Epic, comedy, dialogue, a lesson, action, or revenge is used when the scene is actually that — never to fill a slot.
               </p>
               <p className="mt-3 text-sm text-muted">
-                The full movie stays on this device. Movicut sends only a small set of candidate frames for AI ranking and about a minute of selected-cut audio for karaoke transcription.
+                The full movie file stays on this device. Movicut sends compressed audio chunks to Gemini for full-story transcription, then only candidate frames for final visual ranking.
               </p>
             </div>
           ) : (
