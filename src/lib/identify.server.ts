@@ -10,6 +10,7 @@ export type JudgeIn = {
   quote: string;
   lines: string;
   openLine: string;
+  closingLine: string;
   motion: number;
   contrast: number;
   lum: number;
@@ -133,6 +134,7 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
             `first 5s motion=${m.motion} contrast=${m.contrast} light=${m.lum} sound=${m.audio}`,
             m.openLine ? `opening line: ${m.openLine}` : "opening line: none",
             m.lines && m.lines !== m.openLine ? `later dialogue: ${m.lines}` : "",
+            m.closingLine ? `last 8s dialogue: ${m.closingLine}` : "last 8s dialogue: none",
             `peak frame timestamp=${Math.round(m.thumbnailAt * 10) / 10}s`,
           ].filter(Boolean).join(" | ");
         }),
