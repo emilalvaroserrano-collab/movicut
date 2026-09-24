@@ -362,6 +362,16 @@ function openingLine(cues: Cue[], start: number): string {
     .slice(0, 140);
 }
 
+function closingLine(cues: Cue[], end: number): string {
+  return cues
+    .filter((c) => c.end > end - 8 && c.start < end)
+    .map((c) => c.text.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(-3)
+    .join(" ")
+    .slice(0, 180);
+}
+
 function openingValue(st: WindowStats, line: string): number {
   const dead = st.lum < 0.07 || st.contrast < 0.035 ? 0.72 : 0;
   const trimmed = line.trim();
@@ -485,6 +495,7 @@ export type Moment = {
   audio: number;
   lines: string;
   openLine: string;
+  closingLine: string;
   frameAt: number;
   thumbnailAt: number;
 };
@@ -522,6 +533,25 @@ function bestFrameAt(samples: Sample[], start: number, end: number, category: Ca
   return best;
 }
 
+function bestThumbnailAt(samples: Sample[], start: number, end: number): Sample | null {
+  const pool = samples.filter((s) => s.t >= start + 0.8 && s.t <= end - 0.8);
+  if (!pool.length) return null;
+  let best = pool[0];
+  let score = -Infinity;
+  for (const s of pool) {
+    const dead = s.lum < 0.08 || s.contrast < 0.04;
+    const exposure = s.lum > 0.16 && s.lum < 0.82 ? 0.35 : 0;
+    const motionReadable = s.diff >= 0.06 && s.diff <= 0.58 ? 0.22 : 0;
+    const blurRisk = s.diff > 0.82 ? 0.55 : 0;
+    const value = (dead ? -2 : 0) + s.contrast * 1.55 + exposure + motionReadable - blurRisk;
+    if (value > score) {
+      score = value;
+      best = s;
+    }
+  }
+  return best;
+}
+
 type Draft = {
   start: number;
   end: number;
@@ -534,13 +564,14 @@ type Draft = {
   quote: string | null;
   lines: string;
   openLine: string;
+  closingLine: string;
   energy: number;
 };
 
 function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
   const open = windowStats(samples, draft.start, draft.start + 5);
   const frame = bestFrameAt(samples, draft.start + 0.4, Math.min(draft.end, draft.start + 5), draft.category);
-  const thumbnail = bestFrameAt(samples, draft.start + 0.8, draft.end - 0.8, draft.category);
+  const thumbnail = bestThumbnailAt(samples, draft.start + 0.8, draft.end - 0.8);
   return {
     id: `m${index}`,
     start: draft.start,
@@ -554,6 +585,7 @@ function toMoment(draft: Draft, samples: Sample[], index: number): Moment {
     audio: Math.round(open.audio * 100) / 100,
     lines: draft.lines,
     openLine: draft.openLine,
+    closingLine: draft.closingLine,
     frameAt: frame?.t ?? draft.start + 2.5,
     thumbnailAt: thumbnail?.t ?? frame?.t ?? draft.start + 2.5,
   };
@@ -595,6 +627,7 @@ export function spreadMoments(samples: Sample[], duration: number, cues: Cue[]):
       quote: bestQuote(cues, window.start, window.end),
       lines: windowLines(cues, window.start, window.end),
       openLine: spoken,
+      closingLine: closingLine(cues, window.end),
       energy: hook * 0.82 + lead.score * 0.18,
     });
   }
