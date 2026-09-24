@@ -80,6 +80,7 @@ export function cutsFromJudgement(shots: MomentShot[], judged: JudgedCut[]): Cut
           : row.thumbnailChoice === "ending"
             ? Math.max(shot.start, shot.end - 2.2)
             : shot.thumbnailAt,
+      sourceMomentId: row.id,
     });
     if (next.length >= 5) break;
   }
