@@ -178,6 +178,26 @@ function titleFor(cat: Category, start: number): string {
   return bank[i];
 }
 
+const TITLE_STOP = new Set(["THE", "A", "AN", "AND", "OR", "OF", "TO", "IN", "ON", "IS", "IT", "THIS", "THAT", "I"]);
+
+function titleFromQuote(quote: string | null, fallback: string): string {
+  if (!quote) return fallback;
+  const words = quote
+    .replace(/[^\p{L}\p{N}'’!? -]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((word) => word.toUpperCase());
+  if (words.length < 3) return fallback;
+  let hot = words.length - 1;
+  while (hot > 0 && TITLE_STOP.has(words[hot].replace(/[^A-Z0-9]/g, ""))) hot -= 1;
+  words[hot] = `*${words[hot].replace(/\*/g, "")}*`;
+  const split = Math.min(4, Math.ceil(words.length / 2));
+  return [words.slice(0, split).join(" "), words.slice(split).join(" ")].filter(Boolean).join("\n");
+}
+
 function reasonFor(cat: Category, subs: boolean, audio: boolean): string {
   const head: Record<Category, string> = {
     epic: "Big contrast and a surge that holds.",
@@ -444,7 +464,9 @@ export function pickCuts(samples: Sample[], duration: number, cues: Cue[], hasAu
     end: c.end,
     category: c.category,
     score: Math.round(c.score * 1000) / 1000,
-    title: titleFor(c.category, c.start),
+    viralScore: Math.round(clamp01(c.score) * 100),
+    hookScore: Math.round(clamp01(c.score * 1.08) * 100),
+    title: titleFromQuote(c.quote, titleFor(c.category, c.start)),
     reason: reasonFor(c.category, hasSubs, hasAudio),
     quote: c.quote ?? undefined,
   }));
