@@ -3,7 +3,9 @@ export type HeardWord = { text: string; start: number; end: number };
 export type TranscribeResult = { ok: true; words: HeardWord[] } | { ok: false; error: string };
 
 const WINDOW_MS = 10 * 60 * 1000;
-const MAX_CALLS = 24;
+// Candidate-dialogue analysis can consume up to 10 calls per scan before
+// selected-cut karaoke runs. Keep enough headroom for several regenerate cycles.
+const MAX_CALLS = 80;
 
 function takeSlot(): boolean {
   const g = globalThis as typeof globalThis & { __karaokeHits?: number[] };
@@ -84,6 +86,9 @@ async function transcribeDirectXai(binary: Buffer, apiKey: string): Promise<Hear
   const send = () => {
     const form = new FormData();
     form.append("model", "grok-voice-transcribe-2.0");
+    form.append("format", "true");
+    form.append("filler_words", "false");
+    // xAI requires option fields before the file field.
     form.append("file", new File([new Uint8Array(binary)], "cut.wav", { type: "audio/wav" }));
     return fetch("https://api.x.ai/v1/stt", {
       method: "POST",
