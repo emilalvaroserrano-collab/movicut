@@ -694,13 +694,16 @@ export function Studio() {
       if (ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
       setProgress(0.19);
       setProgressLabel("Gemini is mapping the strongest story moments");
-      const storyPlan = await planStoryWindows({
-        data: {
-          transcript: story.context,
-          duration: fileMeta.duration,
-          avoid: previousCuts,
-        },
-      });
+      const storyPlan =
+        story.context.trim().length >= 20
+          ? await planStoryWindows({
+              data: {
+                transcript: story.context,
+                duration: fileMeta.duration,
+                avoid: previousCuts,
+              },
+            })
+          : { ok: true as const, summary: "", windows: [] };
       if (!storyPlan.ok) throw new Error(storyPlan.error);
       storySummaryRef.current = storyPlan.summary;
 
