@@ -11,6 +11,8 @@ export type JudgeIn = {
   lines: string;
   openLine: string;
   closingLine: string;
+  storyReason: string;
+  storyContext: string;
   motion: number;
   contrast: number;
   lum: number;
@@ -336,6 +338,8 @@ function buildPrompt(clipped: JudgeIn[], storyContext: string): string {
         m.openLine ? `openingDialogue="${m.openLine}"` : "openingDialogue=none",
         m.lines ? `sampleDialogue="${m.lines}"` : "sampleDialogue=none",
         m.closingLine ? `endingDialogue="${m.closingLine}"` : "endingDialogue=none",
+        m.storyReason ? `storyReason="${m.storyReason}"` : "",
+        m.storyContext ? `storyContext="${m.storyContext}"` : "",
         m.quote ? `candidateQuote="${m.quote}"` : "",
         `peakFrameAt=${Math.round(m.thumbnailAt * 10) / 10}s`,
       ]
