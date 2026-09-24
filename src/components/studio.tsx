@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Download, FolderOpen, Gauge, Pause, Play, RotateCcw, Sparkles, Subtitles } from "lucide-react";
+import { Download, FolderOpen, Pause, Play, RotateCcw, Sparkles, Subtitles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ClipCard } from "@/components/clip-card";
 import {
   CATEGORY_LABEL,
   CATEGORY_ORDER,
@@ -1037,7 +1038,7 @@ export function Studio() {
                 Ranking keeps a cut only when the first 3 to 5 seconds can stop a scroll. Epic, comedy, dialogue, a lesson, action, or revenge is used when the scene is actually that — never to fill a slot.
               </p>
               <p className="mt-3 text-sm text-muted">
-                You need the rights to the film, including a magnet. The picture stays here. About a minute of each cut's audio is sent so the karaoke can be written.
+                The full movie stays on this device. Movicut sends only a small set of candidate frames for AI ranking and about a minute of selected-cut audio for karaoke transcription.
               </p>
             </div>
           ) : (
@@ -1114,58 +1115,22 @@ export function Studio() {
 
               {cuts.length > 0 ? (
                 <div className="grid gap-2">
-                  {cuts.map((cut, index) => {
-                    const selected = cut.id === activeId;
-                    return (
-                      <button
-                        key={cut.id}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => {
-                          setActiveId(cut.id);
-                          const video = videoRef.current;
-                          if (video) {
-                            video.pause();
-                            video.currentTime = cut.start;
-                          }
-                        }}
-                        className={`flex w-full gap-3 rounded-2xl bg-surface p-3 text-left ring-1 ${selected ? "ring-pop" : "ring-line"}`}
-                      >
-                        {cut.thumb ? (
-                          <img src={cut.thumb} alt="" className="h-16 w-28 shrink-0 rounded-lg object-cover" />
-                        ) : (
-                          <span className="flex h-16 w-28 shrink-0 items-center justify-center rounded-lg bg-surface-2 font-poster text-2xl text-pop">
-                            {index + 1}
-                          </span>
-                        )}
-                        <span className="min-w-0">
-                          <span className="block text-xs text-pop">{CATEGORY_LABEL[cut.category]}</span>
-                          <span className="mt-1 block font-poster text-xl leading-none tracking-wide text-fg">
-                            {plainTitle(cut.title)}
-                          </span>
-                          {cut.viralScore != null || cut.hookScore != null ? (
-                            <span className="mt-1.5 flex flex-wrap gap-1.5">
-                              {cut.viralScore != null ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-pop/10 px-2 py-0.5 text-[11px] font-bold text-pop ring-1 ring-pop/25">
-                                  <Sparkles className="size-3" aria-hidden="true" />
-                                  Viral potential {cut.viralScore}
-                                </span>
-                              ) : null}
-                              {cut.hookScore != null ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-fg">
-                                  <Gauge className="size-3" aria-hidden="true" />
-                                  Hook {cut.hookScore}
-                                </span>
-                              ) : null}
-                            </span>
-                          ) : null}
-                          <span className="mt-1 block text-sm tabular-nums text-muted">
-                            {formatTimecode(cut.start)} – {formatTimecode(cut.end)} · {formatSeconds(cut.end - cut.start)}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {cuts.map((cut, index) => (
+                    <ClipCard
+                      key={cut.id}
+                      cut={cut}
+                      index={index}
+                      selected={cut.id === activeId}
+                      onSelect={() => {
+                        setActiveId(cut.id);
+                        const video = videoRef.current;
+                        if (video) {
+                          video.pause();
+                          video.currentTime = cut.start;
+                        }
+                      }}
+                    />
+                  ))}
                 </div>
               ) : status !== "scanning" ? (
                 <p className="text-sm text-muted">No cuts yet. Find them after the movie is open.</p>
