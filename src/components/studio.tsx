@@ -786,9 +786,13 @@ export function Studio() {
         }
       }
     }
-    const mime = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/webm"].find((t) =>
-      MediaRecorder.isTypeSupported(t),
-    );
+    const mime = [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm",
+    ].find((t) => MediaRecorder.isTypeSupported(t));
     if (!mime) {
       setError("This browser can't write a downloadable cut. Playback still works.");
       return;
@@ -992,9 +996,9 @@ export function Studio() {
                 top and cutout karaoke in the center that disappears when the line is done.
               </p>
               <ol className="mt-5 grid gap-2 text-sm text-fg">
-                <li>1. Open the movie. The picture stays in this browser.</li>
-                <li>2. Find the cuts. Karaoke is written from the dialogue.</li>
-                <li>3. Play or save. Each line leaves when it ends.</li>
+                <li>1. Open the movie. The full source file remains on this device.</li>
+                <li>2. AI ranks strong standalone moments, hooks, and cover frames.</li>
+                <li>3. Review, play, edit, then export a social-ready vertical clip.</li>
               </ol>
               {srtName ? (
                 <p className="mt-4 text-sm text-pop">
@@ -1051,7 +1055,7 @@ export function Studio() {
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button onClick={() => void scan()} disabled={status === "scanning" || status === "loading" || !longEnough}>
-                    {status === "scanning" ? "Reading the film" : "Find five cuts"}
+                    {status === "scanning" ? "Reading the film" : "Generate viral clips"}
                   </Button>
                   <Button variant="quiet" onClick={() => void chooseMovie()} disabled={status === "scanning"}>
                     Change movie
@@ -1335,7 +1339,7 @@ export function Studio() {
             </Button>
             <Button onClick={() => void recordCut()} disabled={!active || recording || cutLen < 49.5}>
               <Download className="size-4" aria-hidden="true" />
-              {recording ? "Saving" : "Save this cut"}
+              {recording ? "Saving" : "Export MP4"}
             </Button>
           </div>
           {recording ? (
