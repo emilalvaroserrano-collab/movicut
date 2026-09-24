@@ -30,7 +30,7 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-async function extractStoryAudio(
+export async function extractStoryAudioChunk(
   file: File,
   start: number,
   end: number,
@@ -163,7 +163,7 @@ export async function transcribeMovieStory(opts: {
         `Gemini is transcribing the story at ${formatClock(range.start)}`,
       );
 
-      const blob = await extractStoryAudio(opts.file, range.start, range.end, opts.isStale);
+      const blob = await extractStoryAudioChunk(opts.file, range.start, range.end, opts.isStale);
       if (opts.isStale()) throw new Error("stale");
       const audioBase64 = await blobToBase64(blob);
       const result = await transcribeStoryChunk({
