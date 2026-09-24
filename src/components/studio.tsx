@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Download, FolderOpen, Pause, Play, RotateCcw, Subtitles } from "lucide-react";
+import { Download, FolderOpen, Gauge, Pause, Play, RotateCcw, Sparkles, Subtitles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   CATEGORY_LABEL,
@@ -23,6 +23,7 @@ import { cuesToPhrases, linesToCues, parseSubtitles, phraseAt, wordIndexAt, word
 import { extractCutWav, transcribeWav } from "@/lib/hear-cut";
 import { cutsFromJudgement, judgeMoments } from "@/lib/identify";
 import { hasMovieHandle, loadMovieHandle, loadProject, saveMovieHandle, saveProject } from "@/lib/storage";
+import { finalizeRecordedCut } from "@/lib/export-cut";
 
 const BLURB: Record<Category, string> = {
   epic: "The turn that makes the rest of the film make sense.",
@@ -186,6 +187,7 @@ export function Studio() {
   const [hearingId, setHearingId] = useState<string | null>(null);
   const [silentIds, setSilentIds] = useState<string[]>([]);
   const [hearError, setHearError] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
 
   const phrases = useMemo(() => cuesToPhrases(cues), [cues]);
   const cuesRef = useRef(cues);
@@ -590,7 +592,7 @@ export function Studio() {
       let perm = (await handle.queryPermission?.({ mode: "read" })) ?? "prompt";
       if (perm !== "granted") perm = (await handle.requestPermission?.({ mode: "read" })) ?? "denied";
       if (perm !== "granted") {
-        setError("Allow Hookcut to read that movie again, or open it with the button.");
+        setError("Allow Movicut to read that movie again, or open it with the button.");
         return;
       }
       await openFile(await handle.getFile());
@@ -668,7 +670,9 @@ export function Studio() {
                 contrast: shot.contrast,
                 lum: shot.lum,
                 audio: shot.audio,
-                image: shot.image,
+                openingImage: shot.openingImage,
+                thumbnailImage: shot.thumbnailImage,
+                thumbnailAt: shot.thumbnailAt,
               })),
             },
           });
@@ -688,7 +692,7 @@ export function Studio() {
         setCues((prev) => prev.filter((cue) => cue.source !== "heard"));
       }
       const signals = signalsFrom(result.usedAudio, cues.length > 0 || !manualLockRef.current);
-      if (readScenes) signals.push("Scene read");
+      if (readScenes) signals.push("AI retention rank", "AI thumbnail pick");
       setSignalList(signals);
       setCanRerank(true);
       if (!cuts.length) setError("No 50–59 second cut fit inside this file.");
@@ -903,14 +907,20 @@ export function Studio() {
     });
     await stopped;
     stopMix();
-    const blob = new Blob(chunks, { type: mime });
-    const url = URL.createObjectURL(blob);
+    const recorded = new Blob(chunks, { type: mime });
+    setExportProgress(0);
+    const exported = await finalizeRecordedCut(recorded, (ratio) => setExportProgress(ratio));
+    const url = URL.createObjectURL(exported.blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `hookcut-${cut.category}-${Math.round(cut.start)}s.webm`;
+    a.download = `movicut-${cut.category}-${Math.round(cut.start)}s.${exported.extension}`;
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setExportProgress(null);
     setRecording(false);
+    if (!exported.converted) {
+      setError("MP4 encoding is not available on this device, so Movicut saved a WebM instead.");
+    }
   }
 
   function onDrop(e: DragEvent) {
@@ -945,13 +955,17 @@ export function Studio() {
   const stillSrc = demoStill === 0 ? "/still-ticket.jpg" : "/still-booth.jpg";
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-8">
+    <main className="mx-auto min-h-screen w-full max-w-6xl px-3 pb-28 pt-4 sm:px-6 sm:pb-8 sm:pt-7">
       <header className="flex items-end justify-between gap-4">
         <div>
-          <p className="font-poster text-4xl tracking-wide text-fg">HOOKCUT</p>
-          <p className="text-sm text-muted">Portrait cuts from the movie on this device</p>
+          <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-pop/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-pop ring-1 ring-pop/30">
+            <Sparkles className="size-3" aria-hidden="true" />
+            AI Shorts Editor
+          </div>
+          <p className="font-poster text-4xl tracking-wide text-fg">MOVICUT</p>
+          <p className="text-sm text-muted">Find the moments people will actually stop for</p>
         </div>
-        <p className="hidden text-right text-sm text-muted sm:block">50–59 seconds · nothing uploaded</p>
+        <p className="hidden text-right text-sm text-muted sm:block">50–59 sec · AI-ranked · MP4 preferred</p>
       </header>
 
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -972,7 +986,7 @@ export function Studio() {
                 THE LINE IN THE MIDDLE.
               </h1>
               <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">
-                Open a full movie from this device. Hookcut marks up to five stretches between 50 and 59 seconds — an epic
+                Open a full movie from this device. Movicut marks up to five stretches between 50 and 59 seconds — an epic
                 turn, a joke, a line people repeat, a lesson, action, revenge. Each one plays tall, with a hook across the
                 top and cutout karaoke in the center that disappears when the line is done.
               </p>
@@ -1078,7 +1092,7 @@ export function Studio() {
                   <p className="mt-3 text-sm text-muted">Portrait cuts are 50 to 59 seconds. This file is shorter than that.</p>
                 ) : (
                   <p className="mt-3 text-sm text-muted">
-                    A feature-length film takes a short while. Hookcut seeks through it here.
+                    A feature-length film takes a short while. Movicut seeks through it here.
                     {fileMeta.size > 18 * 1024 * 1024 ? " Sound peaks are skipped on large files." : ""} After the cuts
                     land, karaoke is written from each one's dialogue.
                   </p>
@@ -1129,6 +1143,22 @@ export function Studio() {
                           <span className="mt-1 block font-poster text-xl leading-none tracking-wide text-fg">
                             {plainTitle(cut.title)}
                           </span>
+                          {cut.viralScore != null || cut.hookScore != null ? (
+                            <span className="mt-1.5 flex flex-wrap gap-1.5">
+                              {cut.viralScore != null ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-pop/10 px-2 py-0.5 text-[11px] font-bold text-pop ring-1 ring-pop/25">
+                                  <Sparkles className="size-3" aria-hidden="true" />
+                                  Viral potential {cut.viralScore}
+                                </span>
+                              ) : null}
+                              {cut.hookScore != null ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-fg">
+                                  <Gauge className="size-3" aria-hidden="true" />
+                                  Hook {cut.hookScore}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : null}
                           <span className="mt-1 block text-sm tabular-nums text-muted">
                             {formatTimecode(cut.start)} – {formatTimecode(cut.end)} · {formatSeconds(cut.end - cut.start)}
                           </span>
@@ -1344,9 +1374,37 @@ export function Studio() {
             </Button>
           </div>
           {recording ? (
-            <p className="mt-2 text-center text-sm text-muted">Playing the cut once to write the video. Leave this tab open.</p>
+            <p className="mt-2 text-center text-sm text-muted">
+              {exportProgress == null
+                ? "Rendering the cut once in real time. Keep this tab open."
+                : `Encoding social-ready MP4… ${Math.round(exportProgress * 100)}%`}
+            </p>
           ) : null}
         </section>
+      </div>
+
+      <div className="fixed inset-x-3 bottom-3 z-40 flex items-center gap-2 rounded-2xl bg-surface/95 p-2 shadow-2xl ring-1 ring-line backdrop-blur sm:hidden">
+        <Button
+          className="min-w-0 flex-1"
+          variant="quiet"
+          onClick={() => (fileMeta ? void scan() : void chooseMovie())}
+          disabled={status === "scanning" || status === "loading" || (fileMeta ? !longEnough : false)}
+        >
+          <Sparkles className="size-4" aria-hidden="true" />
+          {fileMeta ? (status === "scanning" ? "Finding" : "AI clips") : "Open"}
+        </Button>
+        <Button className="min-w-0 flex-1" variant="quiet" onClick={() => toggleRef.current()} disabled={recording}>
+          {playing ? <Pause className="size-4" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
+          {playing ? "Pause" : "Play"}
+        </Button>
+        <Button
+          className="min-w-0 flex-1"
+          onClick={() => void recordCut()}
+          disabled={!active || recording || cutLen < 49.5}
+        >
+          <Download className="size-4" aria-hidden="true" />
+          {recording ? "Saving" : "MP4"}
+        </Button>
       </div>
 
       {!fileMeta && error ? (
