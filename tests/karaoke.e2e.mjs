@@ -11,11 +11,11 @@ const page = await browser.newPage();
 await page.addInitScript(
   ({ fixtureSize }) => {
     localStorage.setItem(
-      "movicut-project-v3",
+      "movicut-project-v4",
       JSON.stringify({
         name: "karaoke-fixture.mp4",
         size: fixtureSize,
-        selectionVersion: 3,
+        selectionVersion: 4,
         cuts: [
           {
             id: "dialogue-2-0",
