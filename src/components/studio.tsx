@@ -783,6 +783,8 @@ export function Studio() {
                 lines: shot.lines,
                 openLine: shot.openLine,
                 closingLine: shot.closingLine,
+                storyReason: shot.storyReason,
+                storyContext: shot.storyContext,
                 motion: shot.motion,
                 contrast: shot.contrast,
                 lum: shot.lum,
