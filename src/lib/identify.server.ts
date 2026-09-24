@@ -109,6 +109,132 @@ function parseCuts(text: string, allowed: Set<string>): JudgeOut[] | null {
   return out;
 }
 
+const TITLE_STOP = new Set([
+  "THE", "THIS", "THAT", "THESE", "THOSE", "A", "AN", "AND", "OR", "OF", "TO", "IN", "ON",
+  "IS", "ARE", "WAS", "WERE", "IT", "FOR", "WITH", "FROM", "AT", "BY", "YOU", "YOUR", "HE", "SHE",
+  "THEY", "WE", "I", "HIS", "HER", "THEIR",
+]);
+
+const GENERIC_TITLE_PATTERNS = [
+  /WATCH (?:TILL|UNTIL) THE END/i,
+  /YOU WON'?T BELIEVE/i,
+  /THIS (?:SCENE|MOMENT|CHANGED|HAPPENED)/i,
+  /THE MOMENT EVERYTHING/i,
+  /EVERYTHING CHANGED/i,
+  /DO NOT BLINK/i,
+  /NOBODY (?:EXPECTED|WAS READY)/i,
+  /WHAT HAPPENS NEXT/i,
+  /WAIT (?:FOR|UNTIL) (?:IT|THE)/i,
+  /DIDN'?T SEE (?:THIS|THAT) COMING/i,
+  /THIS (?:IS|WAS) (?:CRAZY|INSANE|WILD)/i,
+  /ONE OF THE BEST/i,
+];
+
+function normalizeEvidence(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/\*/g, "")
+    .replace(/[^\p{L}\p{N}'’ ]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function contentWords(value: string): string[] {
+  return normalizeEvidence(value)
+    .split(" ")
+    .map((word) => word.replace(/^['’]+|['’]+$/g, ""))
+    .filter((word) => word.length >= 4 && !TITLE_STOP.has(word));
+}
+
+function isGenericTitle(value: string): boolean {
+  const title = normalizeEvidence(value);
+  if (!title) return true;
+  return GENERIC_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
+function evidenceText(moment: JudgeIn): string {
+  return [moment.quote, moment.openLine, moment.lines, moment.closingLine]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function localSpecificTitle(moment: JudgeIn): string {
+  const raw =
+    moment.quote ||
+    moment.openLine ||
+    moment.lines.split("/").map((part) => part.trim()).find((part) => part.split(/\s+/).length >= 3) ||
+    moment.closingLine;
+  if (!raw) return "";
+
+  const words = raw
+    .replace(/[^\p{L}\p{N}'’!? -]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 9)
+    .map((word) => word.toUpperCase());
+  if (words.length < 3) return "";
+
+  let hot = words.length - 1;
+  while (hot > 0 && TITLE_STOP.has(words[hot].replace(/[^A-Z0-9]/g, ""))) hot -= 1;
+  words[hot] = `*${words[hot].replace(/\*/g, "")}*`;
+  const split = words.length > 5 ? Math.ceil(words.length / 2) : words.length;
+  return [words.slice(0, split).join(" "), words.slice(split).join(" ")]
+    .filter(Boolean)
+    .join("\n");
+}
+
+type SpecificTitle = {
+  id: string;
+  title: string;
+  evidence: string;
+  evidenceSource: "dialogue" | "visual";
+};
+
+function specificTitleSchema(ids: string[]) {
+  return {
+    type: "object",
+    properties: {
+      titles: {
+        type: "array",
+        minItems: 0,
+        maxItems: 5,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", enum: ids },
+            title: { type: "string", minLength: 3, maxLength: 90 },
+            evidence: { type: "string", minLength: 2, maxLength: 140 },
+            evidenceSource: { type: "string", enum: ["dialogue", "visual"] },
+          },
+          required: ["id", "title", "evidence", "evidenceSource"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["titles"],
+    additionalProperties: false,
+  };
+}
+
+function validSpecificTitle(row: SpecificTitle, moment: JudgeIn): boolean {
+  if (isGenericTitle(row.title)) return false;
+  const titleWords = new Set(contentWords(row.title));
+  const evidenceWords = contentWords(row.evidence);
+  if (!evidenceWords.length || !evidenceWords.some((word) => titleWords.has(word))) return false;
+
+  if (row.evidenceSource === "dialogue") {
+    const scene = normalizeEvidence(evidenceText(moment));
+    const evidence = normalizeEvidence(row.evidence);
+    if (!evidence || !scene.includes(evidence)) return false;
+  } else {
+    const evidence = normalizeEvidence(row.evidence);
+    if (evidence.split(" ").filter(Boolean).length < 2) return false;
+  }
+  return true;
+}
+
 function selectionSchema(ids: string[]) {
   return {
     type: "object",
@@ -255,6 +381,135 @@ async function readStructuredStream(res: Response): Promise<string> {
   return output.trim();
 }
 
+async function retitleSelectedCuts(opts: {
+  cuts: JudgeOut[];
+  candidates: JudgeIn[];
+  endpoint: string;
+  apiKey: string;
+  model: string;
+}): Promise<JudgeOut[]> {
+  const { cuts, candidates, endpoint, apiKey, model } = opts;
+  if (!cuts.length) return cuts;
+  const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  const selected = cuts
+    .map((cut) => byId.get(cut.id))
+    .filter((moment): moment is JudgeIn => Boolean(moment));
+  if (!selected.length) return [];
+
+  const content: ResponseContent[] = [
+    {
+      type: "input_text",
+      text: [
+        "You are MOVICUT's dedicated hook-title editor.",
+        "The clip selection is already finished. Your only task is to write a highly specific title for each selected scene.",
+        "",
+        "NON-NEGOTIABLE RULES",
+        "- A title must be about the concrete event, quote, person, object, threat, decision, reveal, joke, or consequence visible/audible in THAT clip.",
+        "- Never write generic social-media filler. Banned examples include: THIS CHANGED EVERYTHING, WATCH TILL THE END, YOU WON'T BELIEVE THIS, THIS SCENE HITS, DO NOT BLINK, WHAT HAPPENS NEXT, NOBODY EXPECTED THIS.",
+        "- If useful dialogue exists, anchor the title to an exact short phrase from that dialogue. Set evidenceSource=dialogue and copy evidence EXACTLY from the supplied dialogue.",
+        "- If dialogue is not useful, describe one concrete visible fact from the supplied frames. Set evidenceSource=visual.",
+        "- The title must contain at least one meaningful word from evidence.",
+        "- Do not reveal the ending/payoff.",
+        "- ALL CAPS, 1-2 lines, ideally 5-9 words total, max 5 words per line.",
+        "- Put exactly one meaningful word or short phrase in *asterisks*.",
+        "",
+        "GOOD: HE CAME BACK FOR HIS *BROTHER*",
+        "GOOD: SHE REFUSED TO OPEN THE *DOOR*",
+        "GOOD: YOU KILLED MY *BROTHER*",
+        "BAD: THIS CHANGED *EVERYTHING*",
+        "BAD: WAIT FOR THE *ENDING*",
+        "BAD: NOBODY EXPECTED *THIS*",
+        "",
+        ...selected.map((moment) =>
+          [
+            `${moment.id}: ${Math.round(moment.start)}s-${Math.round(moment.end)}s`,
+            moment.openLine ? `openingDialogue="${moment.openLine}"` : "openingDialogue=none",
+            moment.lines ? `dialogue="${moment.lines}"` : "dialogue=none",
+            moment.closingLine ? `endingDialogue="${moment.closingLine}"` : "endingDialogue=none",
+            moment.quote ? `quote="${moment.quote}"` : "quote=none",
+          ].join(" | "),
+        ),
+      ].join("\n"),
+    },
+  ];
+
+  for (const moment of selected) {
+    content.push({ type: "input_text", text: `${moment.id} OPENING` });
+    content.push({
+      type: "input_image",
+      image_url: `data:image/jpeg;base64,${moment.openingImage}`,
+      detail: "high",
+    });
+    content.push({ type: "input_text", text: `${moment.id} PEAK` });
+    content.push({
+      type: "input_image",
+      image_url: `data:image/jpeg;base64,${moment.thumbnailImage}`,
+      detail: "high",
+    });
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      reasoning: { effort: "low" },
+      store: false,
+      stream: true,
+      prompt_cache_key: "movicut-specific-title-v1",
+      text: {
+        format: {
+          type: "json_schema",
+          name: "movicut_specific_titles",
+          schema: specificTitleSchema(cuts.map((cut) => cut.id)),
+          strict: true,
+        },
+      },
+      input: [{ role: "user", content }],
+    }),
+    signal: AbortSignal.timeout(75_000),
+  });
+
+  let rows: SpecificTitle[] = [];
+  if (response.ok) {
+    const text = await readStructuredStream(response);
+    try {
+      const parsed = JSON.parse(text) as { titles?: unknown };
+      if (Array.isArray(parsed.titles)) {
+        rows = parsed.titles.filter((row): row is SpecificTitle => Boolean(row && typeof row === "object"));
+      }
+    } catch {
+      rows = [];
+    }
+  }
+
+  const byTitle = new Map(rows.map((row) => [row.id, row]));
+  const final: JudgeOut[] = [];
+  for (const cut of cuts) {
+    const moment = byId.get(cut.id);
+    if (!moment) continue;
+    const proposed = byTitle.get(cut.id);
+    if (proposed && validSpecificTitle(proposed, moment)) {
+      final.push({ ...cut, title: proposed.title });
+      continue;
+    }
+
+    const fallback = localSpecificTitle(moment);
+    if (fallback && !isGenericTitle(fallback)) {
+      final.push({ ...cut, title: fallback });
+      continue;
+    }
+
+    // No concrete title evidence means this scene is not ready for publishing.
+    // Dropping it is better than reintroducing a generic hook.
+  }
+  return final;
+}
+
 export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeResult> {
   const gatewayKey = process.env.AI_GATEWAY_API_KEY;
   const directKey = process.env.XAI_API_KEY;
@@ -360,16 +615,37 @@ export async function judgeMomentsOnServer(moments: JudgeIn[]): Promise<JudgeRes
     return { ok: false, error: "Grok 4.7 returned invalid structured scene-selection JSON." };
   }
 
-  if (viaGateway && cuts.length) {
+  let selected = cuts;
+
+  if (viaGateway && selected.length) {
     try {
       const { evaluateCutsWithJev } = await import("@/lib/scene-evaluator.server");
-      const evaluated = await evaluateCutsWithJev(cuts, clipped);
-      return { ok: true, cuts: evaluated };
+      selected = await evaluateCutsWithJev(selected, clipped);
     } catch {
       // Jev is a second opinion. A verifier outage must not discard a valid
       // strict-schema Grok 4.7 selection.
     }
   }
 
-  return { ok: true, cuts };
+  if (selected.length) {
+    try {
+      selected = await retitleSelectedCuts({
+        cuts: selected,
+        candidates: clipped,
+        endpoint,
+        apiKey,
+        model,
+      });
+    } catch {
+      selected = selected
+        .map((cut) => {
+          const moment = clipped.find((candidate) => candidate.id === cut.id);
+          const title = moment ? localSpecificTitle(moment) : "";
+          return title && !isGenericTitle(title) ? { ...cut, title } : null;
+        })
+        .filter((cut): cut is JudgeOut => cut !== null);
+    }
+  }
+
+  return { ok: true, cuts: selected };
 }
