@@ -1,9 +1,9 @@
 import type { Cut } from "@/lib/analyze";
 import type { Cue } from "@/lib/subtitles";
 
-const LS_KEY = "movicut-project-v3";
-const LEGACY_KEYS = ["movicut-project-v2", "hookcut-project-v1"];
-export const CURRENT_SELECTION_VERSION = 3;
+const LS_KEY = "movicut-project-v4";
+const LEGACY_KEYS = ["movicut-project-v3", "movicut-project-v2", "hookcut-project-v1"];
+export const CURRENT_SELECTION_VERSION = 4;
 const DB_NAME = "movicut";
 const STORE = "handles";
 
