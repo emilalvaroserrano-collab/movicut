@@ -4,16 +4,16 @@ Movicut is a mobile-first AI-assisted short-form video editor. It analyzes a mov
 
 ## Current pipeline
 
-1. The full movie is opened and decoded in the browser.
-2. Movicut samples visual motion, luminance, contrast, available subtitle/dialogue context, and lightweight audio energy where practical.
-3. The strongest standalone 50–59 second candidates are shortlisted.
-4. Up to ten diverse candidate windows are built across the movie instead of only keeping the highest-motion scenes.
-5. When subtitles are missing, candidate dialogue is transcribed before final selection so the judge can understand what is actually being said.
-6. Grok 4.7 runs through Vercel AI Gateway with strict JSON-schema output and ranks clips for hook strength, standalone clarity, emotion, payoff, visual strength, and quotability.
-7. Jev independently evaluates the proposed selections and helps reject/rerank weak cold-viewer clips.
-8. Selected candidate transcripts are reused for karaoke instead of transcribing winners a second time.
-9. The browser composes a 9:16 render with title, video, karaoke captions, and music.
-10. Export prefers H.264/AAC MP4 through Mediabunny and falls back to WebM when the device cannot encode AVC/AAC.
+1. The full movie stays on the user's device.
+2. In the browser, Movicut extracts low-bitrate mono audio in roughly six-minute chunks.
+3. Each compressed audio chunk is temporarily uploaded to the Gemini Files API and transcribed by `gemini-3.5-transcribe` with speaker diarization and word-level timestamps.
+4. The complete timed transcript is cached in memory for the currently opened movie.
+5. `gemini-3.8-flash` reads the full transcript and proposes story-aware 50–59 second windows based on character relationships, setup/payoff, reveals, conflict, jokes, emotional turns, decisions, and consequences.
+6. The browser samples the visual track and captures opening, peak, and ending frames from those Gemini-selected windows.
+7. Grok 4.7 performs the final multimodal ranking using the Gemini story summary plus the local dialogue and frames for each candidate.
+8. Jev independently evaluates the proposed selections.
+9. Karaoke remains a separate tested path: selected-cut audio is transcribed for word timing and rendered with active-word highlighting.
+10. Export prefers H.264/AAC MP4 through Mediabunny and falls back to WebM when AVC/AAC encoding is unavailable.
 
 ## AI selection rules
 
@@ -42,21 +42,29 @@ The development server uses the workspace's existing `npm run dev` contract.
 
 ## Environment
 
-Server-side AI features should use:
+Required for story-aware selection:
+
+```text
+GEMINI_API_KEY
+```
+
+Gemini is used for the full-movie story layer:
+
+- `gemini-3.5-transcribe` — compressed full-timeline audio transcription with speaker labels and word timestamps.
+- `gemini-3.8-flash` — structured story understanding and 50–59 second narrative window planning.
+
+Final visual selection uses:
 
 ```text
 AI_GATEWAY_API_KEY
 ```
 
-This single Vercel AI Gateway credential powers:
+- `spacexai/grok-4.7` — final multimodal candidate ranking and scene-specific titles.
+- `typesafe-ai/jev` — independent typed evaluation/reranking.
 
-- `spacexai/grok-4.7` — final multimodal scene selection with strict structured output.
-- `typesafe-ai/jev` — independent typed quality evaluation/reranking.
-- `spacexai/grok-stt` — candidate dialogue and karaoke transcription.
+`XAI_API_KEY` is optional but recommended for the direct timestamped karaoke STT path and direct Grok fallback.
 
-`XAI_API_KEY` is supported only as an optional migration fallback for direct xAI scene/STT calls.
-
-Keep both values server-side. Do **not** expose either key through a `VITE_` variable and do not commit real tokens to Git.
+All keys are server-only. Do **not** expose them through `VITE_` variables or commit real values.
 
 ## Vercel
 
@@ -65,8 +73,9 @@ The project already uses TanStack Start with Nitro's Vercel preset. `vercel.json
 For Git deployment:
 
 1. Import this GitHub repository into Vercel.
-2. Add `AI_GATEWAY_API_KEY` under **Settings → Environment Variables** for Production and Preview.
-3. Optionally add `XAI_API_KEY` only if you want the direct-provider migration fallback.
-4. Deploy the branch or merge to the production branch.
+2. Add `GEMINI_API_KEY` for Production and Preview.
+3. Add `AI_GATEWAY_API_KEY` for Production and Preview.
+4. Optionally add `XAI_API_KEY` for direct timestamped karaoke STT and direct Grok fallback.
+5. Deploy the branch or merge to the production branch.
 
-No full source movie upload is required by the Movicut pipeline; only shortlisted candidate frames and selected-cut audio are sent to the AI server functions.
+The original full movie file is never uploaded. Movicut locally creates compressed audio chunks for Gemini story transcription; Gemini Files API uploads are temporary and are explicitly deleted after each chunk is transcribed. Candidate frames are then sent only for final visual ranking.
