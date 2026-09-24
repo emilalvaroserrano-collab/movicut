@@ -202,11 +202,14 @@ export async function transcribeMovieStory(opts: {
   chunks.sort((a, b) => a.start - b.start);
   const words = chunks.flatMap((chunk) => chunk.words).sort((a, b) => a.start - b.start);
   const cues = storyWordsToCues(words);
-  const context = chunks
-    .map(
-      (chunk) =>
-        `[${formatClock(chunk.start)}-${formatClock(chunk.end)}] ${chunk.text.replace(/\s+/g, " ").trim()}`,
-    )
+  const context = cues
+    .map((cue) => {
+      const speaker = words.find(
+        (word) => word.end > cue.start && word.start < cue.end && word.speaker,
+      )?.speaker;
+      const who = speaker ? ` [${speaker}]` : "";
+      return `[${formatClock(cue.start)}-${formatClock(cue.end)}]${who} ${cue.text}`;
+    })
     .filter((line) => line.length > 4)
     .join("\n")
     .slice(0, 240_000);
